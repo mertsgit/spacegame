@@ -6,6 +6,7 @@ class LoginManager {
     this.loginScreen = document.getElementById('login-screen');
     this.loginForm = document.getElementById('login-form');
     this.usernameInput = document.getElementById('username-input');
+    this.colorInput = document.getElementById('color-input');
     this.loginButton = document.getElementById('login-button');
     this.loginStatus = document.getElementById('login-status');
     
@@ -41,6 +42,7 @@ class LoginManager {
   // Handle login button click
   handleLoginClick() {
     const username = this.usernameInput.value.trim();
+    const color = this.colorInput ? this.colorInput.value : '#00FFFF';
     
     if (!username) {
       this.showLoginError('Please enter a username');
@@ -52,17 +54,17 @@ class LoginManager {
     this.loginButton.disabled = true;
     
     // Attempt login
-    this.attemptLogin(username);
+    this.attemptLogin(username, color);
   }
   
   // Attempt to login with WebSocket
-  attemptLogin(username) {
-    log(`Attempting login for user: ${username}`);
+  attemptLogin(username, color) {
+    log(`Attempting login for user: ${username} with color: ${color}`);
     
     // Check if WebSocket is available and connected
     if (!window.wsManager) {
       console.error('WebSocket Manager not initialized');
-      this.useTestPlayerId(username);
+      this.useTestPlayerId(username, color);
       return;
     }
     
@@ -75,52 +77,62 @@ class LoginManager {
       // Wait for connection
       setTimeout(() => {
         if (window.wsManager.isConnected()) {
-          this.sendLoginRequest(username);
+          this.sendLoginRequest(username, color);
         } else {
           log('WebSocket connection failed. Using test player ID.');
-          this.useTestPlayerId(username);
+          this.useTestPlayerId(username, color);
         }
       }, 1000);
     } else {
-      this.sendLoginRequest(username);
+      this.sendLoginRequest(username, color);
     }
   }
   
   // Send login request to server
-  sendLoginRequest(username) {
-    log(`Sending login request for: ${username}`);
+  sendLoginRequest(username, color) {
+    log(`Sending login request for: ${username} with color: ${color}`);
     
     // Register login response callback
     window.wsManager.on('loginResponse', (data) => {
       if (data.success) {
         this.loginSuccess(data.playerId, username);
+        
+        // Process the full player list if provided
+        if (data.players && window.gameManager) {
+          log('Received full player list on login, updating players');
+          window.gameManager.updatePlayers(data.players);
+        }
       } else {
         this.showLoginError('Login failed: ' + (data.message || 'Unknown error'));
       }
     });
     
     // Send login request
-    const success = window.wsManager.sendLoginRequest(username);
+    const success = window.wsManager.sendLoginRequest(username, color);
     
     if (!success) {
       log('Failed to send login request. Using test player ID.');
-      this.useTestPlayerId(username);
-    } else {
-      // Set timeout for response
-      setTimeout(() => {
-        if (!this.playerId) {
-          log('No response from server, using local fallback');
-          this.useTestPlayerId(username);
-        }
-      }, 3000);
+      this.useTestPlayerId(username, color);
     }
   }
   
-  // Use test player ID (offline mode)
-  useTestPlayerId(username) {
+  // Use a test player ID for offline testing
+  useTestPlayerId(username, color) {
     const testPlayerId = 'player_' + Math.random().toString(36).substring(2, 8);
     log(`Generated test player ID: ${testPlayerId}`);
+    
     this.loginSuccess(testPlayerId, username);
+    
+    // Add local player with test ID
+    if (window.gameManager) {
+      window.gameManager.addPlayer({
+        id: testPlayerId,
+        username: username,
+        position: { x: 0, y: 50, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        color: color
+      });
+    }
   }
   
   // Handle successful login

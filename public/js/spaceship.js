@@ -11,367 +11,137 @@ class SpaceshipManager {
       return null;
     }
     
-    log(`Creating authentic Star Wars X-Wing fighter with color: ${color}`);
+    log(`Creating X-Wing spaceship with color: ${color}`);
     
     try {
-      // Create ship group
-      const ship = new THREE.Group();
+      // Create a group to hold all spaceship parts
+      const shipGroup = new THREE.Group();
       
-      // ===== MAIN FUSELAGE =====
-      // Main fuselage - elongated body
-      const bodyGeometry = new THREE.CylinderGeometry(0.6, 0.7, 6, 16);
-      const bodyMaterial = new THREE.MeshPhongMaterial({ 
-        color: 0xf0f0f0, 
-        shininess: 70,
-        specular: 0x444444
+      // Create the main body of the spaceship
+      const bodyGeometry = new THREE.BoxGeometry(1.5, 1, 6);
+      const bodyMaterial = new THREE.MeshPhongMaterial({
+        color: 0x888888, // Light gray for the main body
+        shininess: 100,
+        specular: 0x333333
       });
       
       const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-      body.rotation.x = Math.PI / 2; // Rotate to make it horizontal
-      ship.add(body);
+      shipGroup.add(body);
       
-      // Nose cone
-      const coneGeometry = new THREE.ConeGeometry(0.6, 1.5, 16);
-      const coneMaterial = new THREE.MeshPhongMaterial({ 
-        color: 0xf0f0f0, 
-        shininess: 70,
-        specular: 0x444444
-      });
-      
-      const cone = new THREE.Mesh(coneGeometry, coneMaterial);
-      cone.position.z = 3.7; // Position at front of ship
-      cone.rotation.x = -Math.PI / 2; // Rotate to point forward
-      ship.add(cone);
-      
-      // Add panel lines to fuselage for more detail
-      for (let i = -2; i <= 2; i += 1) {
-        this.addPanelLine(ship, i, 0.65);
-      }
-      
-      // ===== COCKPIT =====
-      // Cockpit base
-      const cockpitBaseGeometry = new THREE.CylinderGeometry(0.7, 0.7, 1.0, 16);
-      const cockpitBaseMaterial = new THREE.MeshPhongMaterial({ 
-        color: 0x333333, 
-        shininess: 70
-      });
-      
-      const cockpitBase = new THREE.Mesh(cockpitBaseGeometry, cockpitBaseMaterial);
-      cockpitBase.position.set(0, 0.7, 2.0);
-      cockpitBase.rotation.x = Math.PI / 2;
-      ship.add(cockpitBase);
-      
-      // Cockpit canopy
-      const canopyGeometry = new THREE.SphereGeometry(0.7, 16, 16, 0, Math.PI * 2, 0, Math.PI * 0.6);
-      const canopyMaterial = new THREE.MeshPhongMaterial({ 
-        color: 0xffcc00, 
+      // Create the cockpit (slightly raised from the body)
+      const cockpitGeometry = new THREE.SphereGeometry(0.8, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+      const cockpitMaterial = new THREE.MeshPhongMaterial({
+        color: new THREE.Color(color), // Use player's chosen color
+        shininess: 150,
+        specular: 0x444444,
         transparent: true,
-        opacity: 0.7,
-        shininess: 100,
-        specular: 0xffffff
+        opacity: 0.7
       });
       
-      const canopy = new THREE.Mesh(canopyGeometry, canopyMaterial);
-      canopy.position.set(0, 1.2, 2.0);
-      canopy.rotation.x = Math.PI;
-      ship.add(canopy);
+      const cockpit = new THREE.Mesh(cockpitGeometry, cockpitMaterial);
+      cockpit.position.set(0, 0.5, -1);
+      cockpit.rotation.x = Math.PI;
+      shipGroup.add(cockpit);
       
-      // Cockpit frame
-      const frameGeometry = new THREE.TorusGeometry(0.7, 0.08, 8, 16, Math.PI * 0.6);
-      const frameMaterial = new THREE.MeshPhongMaterial({ 
+      // Create the four wings (X configuration)
+      const wingGeometry = new THREE.BoxGeometry(5, 0.2, 2);
+      const wingMaterial = new THREE.MeshPhongMaterial({
+        color: new THREE.Color(color), // Use player's chosen color
+        shininess: 80,
+        specular: 0x222222
+      });
+      
+      // Top-right wing
+      const wing1 = new THREE.Mesh(wingGeometry, wingMaterial);
+      wing1.position.set(2.5, 0.8, 0.5);
+      wing1.rotation.z = Math.PI / 12; // Slight upward angle
+      shipGroup.add(wing1);
+      
+      // Top-left wing
+      const wing2 = new THREE.Mesh(wingGeometry, wingMaterial);
+      wing2.position.set(-2.5, 0.8, 0.5);
+      wing2.rotation.z = -Math.PI / 12; // Slight upward angle
+      shipGroup.add(wing2);
+      
+      // Bottom-right wing
+      const wing3 = new THREE.Mesh(wingGeometry, wingMaterial);
+      wing3.position.set(2.5, -0.8, 0.5);
+      wing3.rotation.z = -Math.PI / 12; // Slight downward angle
+      shipGroup.add(wing3);
+      
+      // Bottom-left wing
+      const wing4 = new THREE.Mesh(wingGeometry, wingMaterial);
+      wing4.position.set(-2.5, -0.8, 0.5);
+      wing4.rotation.z = Math.PI / 12; // Slight downward angle
+      shipGroup.add(wing4);
+      
+      // Add laser cannons at the tips of each wing
+      const cannonGeometry = new THREE.CylinderGeometry(0.1, 0.1, 0.8, 8);
+      const cannonMaterial = new THREE.MeshPhongMaterial({
         color: 0x333333,
-        shininess: 60
-      });
-      
-      const cockpitFrame = new THREE.Mesh(frameGeometry, frameMaterial);
-      cockpitFrame.position.set(0, 1.2, 2.0);
-      cockpitFrame.rotation.x = 0;
-      ship.add(cockpitFrame);
-      
-      // ===== WINGS - S-FOILS =====
-      // Create the 4 wings in X configuration
-      const createWing = (isTop, isRight) => {
-        const wingGroup = new THREE.Group();
-        
-        // Main wing
-        const wingGeometry = new THREE.BoxGeometry(5, 0.2, 0.8);
-        const wingMaterial = new THREE.MeshPhongMaterial({ 
-          color: color, 
-          shininess: 60,
-          specular: 0x444444
-        });
-        
-        const wing = new THREE.Mesh(wingGeometry, wingMaterial);
-        
-        // Position wing
-        const xDir = isRight ? 1 : -1;
-        const yDir = isTop ? 1 : -1;
-        wing.position.set(xDir * 2.5, yDir * 0.6, 0);
-        
-        // Rotate wing
-        const rotZ = isTop ? 
-          (isRight ? Math.PI / 12 : -Math.PI / 12) : 
-          (isRight ? -Math.PI / 12 : Math.PI / 12);
-        wing.rotation.z = rotZ;
-        
-        wingGroup.add(wing);
-        
-        // Wing details - stripes
-        const stripeGeometry = new THREE.BoxGeometry(5, 0.05, 0.4);
-        const stripeMaterial = new THREE.MeshPhongMaterial({
-          color: 0x333333,
-          shininess: 60
-        });
-        
-        const stripe = new THREE.Mesh(stripeGeometry, stripeMaterial);
-        stripe.position.set(0, 0.11, 0);
-        wing.add(stripe);
-        
-        // Engine at wing tip
-        const engineGeometry = new THREE.CylinderGeometry(0.3, 0.3, 1.2, 16);
-        const engineMaterial = new THREE.MeshPhongMaterial({
-          color: 0x444444,
-          shininess: 70
-        });
-        
-        const engine = new THREE.Mesh(engineGeometry, engineMaterial);
-        engine.position.set(xDir * 2.5, 0, 0);
-        engine.rotation.z = Math.PI / 2;
-        wingGroup.add(engine);
-        
-        // Engine intake
-        const intakeGeometry = new THREE.CylinderGeometry(0.35, 0.35, 0.2, 16);
-        const intakeMaterial = new THREE.MeshPhongMaterial({
-          color: 0x222222,
-          shininess: 80
-        });
-        
-        const intake = new THREE.Mesh(intakeGeometry, intakeMaterial);
-        intake.position.set(xDir * 3.1, 0, 0);
-        intake.rotation.z = Math.PI / 2;
-        wingGroup.add(intake);
-        
-        // Engine exhaust
-        const exhaustGeometry = new THREE.CylinderGeometry(0.2, 0.25, 0.3, 16);
-        const exhaustMaterial = new THREE.MeshPhongMaterial({
-          color: 0x333333,
-          shininess: 80
-        });
-        
-        const exhaust = new THREE.Mesh(exhaustGeometry, exhaustMaterial);
-        exhaust.position.set(xDir * 1.9, 0, 0);
-        exhaust.rotation.z = Math.PI / 2;
-        wingGroup.add(exhaust);
-        
-        // Engine glow
-        const glowGeometry = new THREE.CylinderGeometry(0.15, 0.15, 0.1, 16);
-        const glowMaterial = new THREE.MeshPhongMaterial({
-          color: 0xff5500,
-          emissive: 0xff3300,
-          shininess: 100,
-          transparent: true,
-          opacity: 0.8
-        });
-        
-        const glow = new THREE.Mesh(glowGeometry, glowMaterial);
-        glow.position.set(xDir * 1.8, 0, 0);
-        glow.rotation.z = Math.PI / 2;
-        wingGroup.add(glow);
-        
-        // Laser cannon
-        const cannonGeometry = new THREE.CylinderGeometry(0.1, 0.1, 1.5, 8);
-        const cannonMaterial = new THREE.MeshPhongMaterial({
-          color: 0x222222,
-          shininess: 80
-        });
-        
-        // Position cannons at wing tips
-        const cannon = new THREE.Mesh(cannonGeometry, cannonMaterial);
-        cannon.position.set(xDir * 4.8, yDir * 0.2, 0);
-        cannon.rotation.z = Math.PI / 2;
-        wingGroup.add(cannon);
-        
-        // Cannon tip
-        const cannonTipGeometry = new THREE.CylinderGeometry(0.12, 0.12, 0.1, 8);
-        const cannonTipMaterial = new THREE.MeshPhongMaterial({
-          color: 0xff0000,
-          shininess: 90
-        });
-        
-        const cannonTip = new THREE.Mesh(cannonTipGeometry, cannonTipMaterial);
-        cannonTip.position.set(xDir * 5.5, yDir * 0.2, 0);
-        cannonTip.rotation.z = Math.PI / 2;
-        wingGroup.add(cannonTip);
-        
-        return wingGroup;
-      };
-      
-      // Add all 4 wings
-      ship.add(createWing(true, true));   // Top right
-      ship.add(createWing(true, false));  // Top left
-      ship.add(createWing(false, true));  // Bottom right
-      ship.add(createWing(false, false)); // Bottom left
-      
-      // ===== WING CONNECTORS =====
-      // S-foil actuators - connect wings to body
-      const createWingConnector = (isTop, isRight) => {
-        const connectorGeometry = new THREE.BoxGeometry(2.0, 0.3, 0.3);
-        const connectorMaterial = new THREE.MeshPhongMaterial({
-          color: 0x888888,
-          shininess: 60
-        });
-        
-        const connector = new THREE.Mesh(connectorGeometry, connectorMaterial);
-        
-        // Position connector
-        const xDir = isRight ? 1 : -1;
-        const yDir = isTop ? 1 : -1;
-        connector.position.set(xDir * 1.0, yDir * 0.3, 0);
-        
-        return connector;
-      };
-      
-      // Add all 4 wing connectors
-      ship.add(createWingConnector(true, true));   // Top right
-      ship.add(createWingConnector(true, false));  // Top left
-      ship.add(createWingConnector(false, true));  // Bottom right
-      ship.add(createWingConnector(false, false)); // Bottom left
-      
-      // ===== ENGINES =====
-      // Main engine
-      const mainEngineGeometry = new THREE.CylinderGeometry(0.8, 0.9, 1, 16);
-      const mainEngineMaterial = new THREE.MeshPhongMaterial({
-        color: 0x444444,
-        shininess: 70
-      });
-      
-      const mainEngine = new THREE.Mesh(mainEngineGeometry, mainEngineMaterial);
-      mainEngine.position.set(0, 0, -3.0);
-      mainEngine.rotation.x = Math.PI / 2;
-      ship.add(mainEngine);
-      
-      // Engine glow
-      const engineGlowGeometry = new THREE.CylinderGeometry(0.6, 0.7, 0.3, 16);
-      const engineGlowMaterial = new THREE.MeshPhongMaterial({
-        color: 0xff5500,
-        emissive: 0xff7700,
-        emissiveIntensity: 0.8,
-        shininess: 100
-      });
-      
-      const engineGlow = new THREE.Mesh(engineGlowGeometry, engineGlowMaterial);
-      engineGlow.position.set(0, 0, -3.5);
-      engineGlow.rotation.x = Math.PI / 2;
-      ship.add(engineGlow);
-      
-      // Add engine light
-      const mainEngineLight = new THREE.PointLight(0xff7700, 1.5, 6);
-      mainEngineLight.position.set(0, 0, -3.7);
-      ship.add(mainEngineLight);
-      
-      // ===== ASTROMECH DROID (R2 UNIT) =====
-      // R2 body
-      const r2BodyGeometry = new THREE.CylinderGeometry(0.4, 0.4, 0.6, 16);
-      const r2BodyMaterial = new THREE.MeshPhongMaterial({
-        color: 0xffffff,
-        shininess: 90
-      });
-      
-      const r2Body = new THREE.Mesh(r2BodyGeometry, r2BodyMaterial);
-      r2Body.position.set(0, 0.9, 0.5);
-      ship.add(r2Body);
-      
-      // R2 head
-      const r2HeadGeometry = new THREE.SphereGeometry(0.3, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2);
-      const r2HeadMaterial = new THREE.MeshPhongMaterial({
-        color: 0xffffff,
-        shininess: 90
-      });
-      
-      const r2Head = new THREE.Mesh(r2HeadGeometry, r2HeadMaterial);
-      r2Head.position.set(0, 1.2, 0.5);
-      r2Head.rotation.x = Math.PI;
-      ship.add(r2Head);
-      
-      // R2 details
-      const r2DetailGeometry = new THREE.BoxGeometry(0.15, 0.08, 0.15);
-      const r2DetailMaterial = new THREE.MeshPhongMaterial({
-        color: color,
-        shininess: 90
-      });
-      
-      // Add colored panels to R2 unit
-      const r2Detail1 = new THREE.Mesh(r2DetailGeometry, r2DetailMaterial);
-      r2Detail1.position.set(0.25, 0.9, 0.5);
-      ship.add(r2Detail1);
-      
-      const r2Detail2 = new THREE.Mesh(r2DetailGeometry, r2DetailMaterial);
-      r2Detail2.position.set(-0.25, 0.9, 0.5);
-      ship.add(r2Detail2);
-      
-      // ===== DETAILS =====
-      // Add torpedo launchers
-      const torpedoLauncherGeometry = new THREE.BoxGeometry(0.2, 0.2, 0.8);
-      const torpedoLauncherMaterial = new THREE.MeshPhongMaterial({
-        color: 0x333333,
-        shininess: 70
-      });
-      
-      // Left torpedo launcher
-      const leftTorpedoLauncher = new THREE.Mesh(torpedoLauncherGeometry, torpedoLauncherMaterial);
-      leftTorpedoLauncher.position.set(-0.3, -0.2, 3.0);
-      ship.add(leftTorpedoLauncher);
-      
-      // Right torpedo launcher
-      const rightTorpedoLauncher = new THREE.Mesh(torpedoLauncherGeometry, torpedoLauncherMaterial);
-      rightTorpedoLauncher.position.set(0.3, -0.2, 3.0);
-      ship.add(rightTorpedoLauncher);
-      
-      // Add navigation lights
-      const navLightGeometry = new THREE.SphereGeometry(0.08, 8, 8);
-      
-      // Red navigation light (left)
-      const redNavLightMaterial = new THREE.MeshBasicMaterial({
-        color: 0xff0000
-      });
-      const redNavLight = new THREE.Mesh(navLightGeometry, redNavLightMaterial);
-      redNavLight.position.set(-0.7, 0, 2.5);
-      ship.add(redNavLight);
-      
-      // Green navigation light (right)
-      const greenNavLightMaterial = new THREE.MeshBasicMaterial({
-        color: 0x00ff00
-      });
-      const greenNavLight = new THREE.Mesh(navLightGeometry, greenNavLightMaterial);
-      greenNavLight.position.set(0.7, 0, 2.5);
-      ship.add(greenNavLight);
-      
-      // White navigation light (top)
-      const whiteNavLightMaterial = new THREE.MeshBasicMaterial({
-        color: 0xffffff
-      });
-      const whiteNavLight = new THREE.Mesh(navLightGeometry, whiteNavLightMaterial);
-      whiteNavLight.position.set(0, 0.7, -2.5);
-      ship.add(whiteNavLight);
-      
-      // Add antenna
-      const antennaGeometry = new THREE.CylinderGeometry(0.02, 0.02, 0.8, 8);
-      const antennaMaterial = new THREE.MeshPhongMaterial({
-        color: 0x888888,
         shininess: 80
       });
       
-      const antenna = new THREE.Mesh(antennaGeometry, antennaMaterial);
-      antenna.position.set(0, 0.7, -1.5);
-      ship.add(antenna);
+      // Add cannons to each wing tip
+      const positions = [
+        [5, 1.2, 0.5],   // Top-right
+        [-5, 1.2, 0.5],  // Top-left
+        [5, -1.2, 0.5],  // Bottom-right
+        [-5, -1.2, 0.5]  // Bottom-left
+      ];
       
-      // Scale the ship to appropriate size
-      ship.scale.set(0.6, 0.6, 0.6);
+      positions.forEach(pos => {
+        const cannon = new THREE.Mesh(cannonGeometry, cannonMaterial);
+        cannon.position.set(pos[0], pos[1], pos[2]);
+        cannon.rotation.x = Math.PI / 2;
+        shipGroup.add(cannon);
+      });
       
-      return ship;
+      // Add engine glow
+      const engineGlowGeometry = new THREE.CylinderGeometry(0.5, 0.7, 0.5, 16);
+      const engineGlowMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00ffff,
+        transparent: true,
+        opacity: 0.7
+      });
+      
+      const engineGlow = new THREE.Mesh(engineGlowGeometry, engineGlowMaterial);
+      engineGlow.position.set(0, 0, 3);
+      engineGlow.rotation.x = Math.PI / 2;
+      shipGroup.add(engineGlow);
+      
+      // Add a point light to make the ship glow
+      const shipLight = new THREE.PointLight(new THREE.Color(color), 1, 10);
+      shipLight.position.set(0, 0, 0);
+      shipGroup.add(shipLight);
+      
+      // Add engine lights
+      const engineLight = new THREE.PointLight(0x00ffff, 1.5, 5);
+      engineLight.position.set(0, 0, 3);
+      shipGroup.add(engineLight);
+      
+      // Rotate the entire ship to face forward in the game's coordinate system
+      shipGroup.rotation.x = Math.PI / 2;
+      
+      // Store the original color for reference
+      shipGroup.userData = {
+        originalColor: color,
+        type: 'spaceship'
+      };
+      
+      log('X-Wing spaceship created successfully with color: ' + color);
+      return shipGroup;
     } catch (error) {
-      console.error('Error creating spaceship:', error);
-      return null;
+      console.error('Error creating X-Wing spaceship:', error);
+      
+      // Fallback to a simple ship if there's an error
+      const fallbackGeometry = new THREE.ConeGeometry(2, 6, 8);
+      const fallbackMaterial = new THREE.MeshBasicMaterial({ color: new THREE.Color(color) });
+      const fallbackMesh = new THREE.Mesh(fallbackGeometry, fallbackMaterial);
+      fallbackMesh.rotation.x = Math.PI / 2; // Rotate to point forward
+      
+      log('Created fallback spaceship with color: ' + color);
+      return fallbackMesh;
     }
   }
   

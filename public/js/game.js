@@ -13,57 +13,69 @@ class GameManager {
     // Game objects
     this.playerShips = {};   // Map of player ID to ship object
     this.players = {};       // Map of player ID to player data
+    this.shipPhysics = {};   // Map of player ID to physics data
+    this.playerTrails = {};  // Map of player ID to trail data { mesh, segments }
+    
+    // Celestial objects
+    this.celestialObjects = {
+      planets: [],
+      stars: null,
+      sun: null,
+      nebulae: [],
+      asteroids: []
+    };
     
     // Physics properties
     this.physics = {
       maxSpeed: 4.0,          // Maximum speed (equivalent to 40km/h)
       acceleration: 0.2,      // Main thruster acceleration (increased from 0.08)
       strafeAcceleration: 0.1, // Strafing acceleration (increased from 0.04)
-      drag: 0.995,            // Space drag (slight slowdown over time)
-      rotationSpeed: 0.03,    // Rotation speed
-      gravityStrength: 0.015, // Gravity force strength (reduced from 0.025)
-      planetMass: 500,        // Mass of the planet (affects gravity)
-      sunMass: 1000,          // Mass of the sun (affects gravity)
-      timeStep: 1,            // Physics time step
-      speedToKm: 10,          // Conversion factor (1 unit = 10 km/h for display)
-      boostMultiplier: 5.0    // Boost multiplier (5x = 200km/h when boosting)
+      rotationSpeed: 0.03,    // Rotation speed (radians per frame)
+      drag: 0.98,             // Drag coefficient (1.0 = no drag)
+      timeStep: 1.0,          // Physics time step multiplier
+      boostMultiplier: 2.0,   // Boost multiplier for acceleration
+      gravity: 0.5            // Gravity strength
     };
     
-    // Ship physics state (will be per-player)
-    this.shipPhysics = {};
-    
-    // Input handling - separate thrust controls from rotation
+    // Input state
     this.keyState = {
-      // Thrusters
-      thrustForward: false,   // W key
-      thrustBackward: false,  // S key
-      strafeLeft: false,      // A key
-      strafeRight: false,     // D key
-      
-      // Rotation
-      pitchUp: false,         // Up arrow
-      pitchDown: false,       // Down arrow
-      yawLeft: false,         // Left arrow
-      yawRight: false,        // Right arrow
-      
-      // Other controls
-      boost: false,           // Shift key
-      reset: false            // R key
+      thrustForward: false,
+      thrustBackward: false,
+      strafeLeft: false,
+      strafeRight: false,
+      turnLeft: false,
+      turnRight: false,
+      rollLeft: false,
+      rollRight: false,
+      pitchUp: false,
+      pitchDown: false,
+      boost: false,
+      reset: false,
+      trailActive: false // New trail key state
     };
     
-    // Player count display
-    this.playerCountElement = document.getElementById('player-count');
+    // Camera settings
+    this.cameraSettings = {
+      distance: 15,           // Distance behind the ship
+      height: 5,              // Height above the ship
+      lookAhead: 10,          // Look-ahead distance
+      smoothing: 0.1          // Camera movement smoothing factor
+    };
+    
+    // Last camera position for smooth transitions
+    this.lastCameraPosition = null;
     
     // Game state
-    this.isInitialized = false;
-    this.isRunning = false;
-    this.lastFrameTime = 0;
-    this.speedometer = null;
-    this.spaceport = null;
-    this.celestialObjects = null;
-    this.speedLines = null; // Speed lines for visual movement feedback
+    this.gameState = {
+      running: false,
+      paused: false,
+      crashed: false
+    };
     
-    log('Game Manager initialized');
+    // Debug mode
+    this.debug = false;
+    
+    log('GameManager initialized');
   }
   
   // Initialize game with local player ID
@@ -91,24 +103,47 @@ class GameManager {
       if (this.localPlayerId && !this.playerShips[this.localPlayerId] && window.spaceshipManager) {
         log('Creating local player ship during initialization');
         
+        // Get the color from the login manager if available
+        let playerColor = '#00FFFF'; // Default cyan color
+        if (window.loginManager && window.loginManager.colorInput) {
+          playerColor = window.loginManager.colorInput.value;
+          log(`Using color from login form: ${playerColor}`);
+        } else {
+          log(`No color input found, using default: ${playerColor}`);
+        }
+        
         const localPlayerData = {
           id: this.localPlayerId,
           username: window.loginManager && window.loginManager.username ? window.loginManager.username : 'Player',
           position: { x: 0, y: 50, z: 0 }, // Start above origin
           rotation: { x: 0, y: 0, z: 0 },
-          color: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')
+          color: playerColor
         };
         
         this.addPlayer(localPlayerData);
       }
       
+      // Initialize player count display
+      this.playerCountElement = document.getElementById('player-count');
+      if (this.playerCountElement) {
+        this.updatePlayerCount();
+      } else {
+        log('Player count element not found');
+      }
+      
       // Start animation loop
+      this.gameState.running = true;
       this.animate();
       
       this.initialized = true;
-      log('Game initialized successfully');
+      log('Game initialization complete');
     } catch (error) {
       console.error('Error initializing game:', error);
+      // Try to recover by at least starting the animation loop
+      if (!this.gameState.running) {
+        this.gameState.running = true;
+        this.animate();
+      }
     }
   }
   
@@ -456,6 +491,13 @@ class GameManager {
         this.keyState.reset = pressed;
         if (pressed) {
           this.resetPlayerPosition();
+        }
+        break;
+      case 'Space':
+        this.keyState.trailActive = pressed;
+        if (!pressed && this.playerTrails[this.localPlayerId]) {
+          // Reset trail segments when releasing spacebar
+          this.playerTrails[this.localPlayerId].segments = [];
         }
         break;
     }
@@ -811,39 +853,38 @@ class GameManager {
       ship.position.copy(newPosition);
     }
     
-    // Check if position has changed
-    const positionChanged = !ship.position.equals(physics.lastPosition);
-    physics.lastPosition.copy(ship.position);
+    // Trail handling
+    if (this.keyState.trailActive) {
+      this.updateTrail(this.localPlayerId, ship.position.clone(), this.players[this.localPlayerId].color);
+    }
     
-    // Update player data and send to server
-    if (positionChanged) {
-      // Update player data
-      if (this.players[this.localPlayerId]) {
-        this.players[this.localPlayerId].position = {
-          x: ship.position.x,
-          y: ship.position.y,
-          z: ship.position.z
-        };
-        
-        this.players[this.localPlayerId].rotation = {
-          x: ship.rotation.x,
-          y: ship.rotation.y,
-          z: ship.rotation.z
-        };
+    // Check collisions with other players' trails
+    for (const id in this.playerTrails) {
+      if (id !== this.localPlayerId && this.playerTrails[id] && this.playerTrails[id].mesh) {
+        const collision = this.checkTrailCollision(ship.position, this.playerTrails[id]);
+        if (collision) {
+          this.handleCrash(this.localPlayerId, collision.position);
+          break;
+        }
       }
+    }
+    
+    // Send position update to server if position changed significantly
+    const positionChanged = physics.lastPosition.distanceTo(ship.position) > 0.1;
+    if (positionChanged) {
+      physics.lastPosition.copy(ship.position);
       
-      // Send position update
       if (window.wsManager && window.wsManager.isConnected()) {
         window.wsManager.sendPositionUpdate(
-          ship.position.x,
-          ship.position.y,
-          ship.position.z,
-          ship.rotation.x,
-          ship.rotation.y,
-          ship.rotation.z
+          { x: ship.position.x, y: ship.position.y, z: ship.position.z },
+          { x: ship.rotation.x, y: ship.rotation.y, z: ship.rotation.z },
+          this.keyState.trailActive // Send trail state
         );
       }
     }
+    
+    // Update camera to follow the player
+    this.updateCameraForLocalPlayer();
   }
   
   // Check for collisions with the spaceport
@@ -1158,59 +1199,86 @@ class GameManager {
   
   // Show crash screen with restart button
   showCrashScreen() {
-    // Create crash screen if it doesn't exist
-    if (!this.crashScreen) {
-      this.crashScreen = document.createElement('div');
-      this.crashScreen.style.position = 'fixed';
-      this.crashScreen.style.top = '0';
-      this.crashScreen.style.left = '0';
-      this.crashScreen.style.width = '100%';
-      this.crashScreen.style.height = '100%';
-      this.crashScreen.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+    if (this.crashScreen) {
       this.crashScreen.style.display = 'flex';
-      this.crashScreen.style.flexDirection = 'column';
-      this.crashScreen.style.justifyContent = 'center';
-      this.crashScreen.style.alignItems = 'center';
-      this.crashScreen.style.zIndex = '1000';
-      this.crashScreen.style.color = 'white';
-      this.crashScreen.style.fontFamily = 'Arial, sans-serif';
-      
-      const crashTitle = document.createElement('h1');
-      crashTitle.textContent = 'SHIP CRASHED';
-      crashTitle.style.fontSize = '3rem';
-      crashTitle.style.marginBottom = '2rem';
-      crashTitle.style.color = '#ff3333';
-      crashTitle.style.textShadow = '0 0 10px rgba(255, 0, 0, 0.7)';
-      
-      const restartButton = document.createElement('button');
-      restartButton.textContent = 'RESTART';
-      restartButton.style.padding = '1rem 2rem';
-      restartButton.style.fontSize = '1.5rem';
-      restartButton.style.backgroundColor = '#3366ff';
-      restartButton.style.color = 'white';
-      restartButton.style.border = 'none';
-      restartButton.style.borderRadius = '5px';
-      restartButton.style.cursor = 'pointer';
-      restartButton.style.boxShadow = '0 0 10px rgba(51, 102, 255, 0.7)';
-      
-      restartButton.addEventListener('mouseover', () => {
-        restartButton.style.backgroundColor = '#4477ff';
-      });
-      
-      restartButton.addEventListener('mouseout', () => {
-        restartButton.style.backgroundColor = '#3366ff';
-      });
-      
-      restartButton.addEventListener('click', () => {
-        this.restartGame();
-      });
-      
-      this.crashScreen.appendChild(crashTitle);
-      this.crashScreen.appendChild(restartButton);
-      document.body.appendChild(this.crashScreen);
-    } else {
-      this.crashScreen.style.display = 'flex';
+      return;
     }
+    
+    // Create crash screen
+    this.crashScreen = document.createElement('div');
+    this.crashScreen.style.position = 'absolute';
+    this.crashScreen.style.top = '0';
+    this.crashScreen.style.left = '0';
+    this.crashScreen.style.width = '100%';
+    this.crashScreen.style.height = '100%';
+    this.crashScreen.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+    this.crashScreen.style.display = 'flex';
+    this.crashScreen.style.flexDirection = 'column';
+    this.crashScreen.style.justifyContent = 'center';
+    this.crashScreen.style.alignItems = 'center';
+    this.crashScreen.style.zIndex = '1000';
+    this.crashScreen.style.fontFamily = "'Orbitron', sans-serif";
+    this.crashScreen.style.backdropFilter = 'blur(5px)';
+    
+    // Create title
+    const title = document.createElement('h1');
+    title.textContent = 'SHIP CRASHED';
+    title.style.color = 'var(--accent-color, #ff00e5)';
+    title.style.fontSize = '3rem';
+    title.style.marginBottom = '2rem';
+    title.style.textShadow = '0 0 10px var(--accent-color, #ff00e5)';
+    title.style.animation = 'pulse 2s infinite';
+    
+    // Create restart button
+    const button = document.createElement('button');
+    button.textContent = 'RESTART';
+    button.style.padding = '12px 30px';
+    button.style.fontSize = '1.2rem';
+    button.style.backgroundColor = 'transparent';
+    button.style.border = '2px solid var(--primary-color, #00e5ff)';
+    button.style.color = 'var(--primary-color, #00e5ff)';
+    button.style.cursor = 'pointer';
+    button.style.fontFamily = "'Orbitron', sans-serif";
+    button.style.borderRadius = '6px';
+    button.style.transition = 'all 0.3s';
+    button.style.textShadow = '0 0 5px var(--primary-color, #00e5ff)';
+    button.style.boxShadow = '0 0 10px rgba(0, 229, 255, 0.3)';
+    
+    // Add hover effect
+    button.addEventListener('mouseover', () => {
+      button.style.backgroundColor = 'rgba(0, 229, 255, 0.2)';
+      button.style.boxShadow = '0 0 20px rgba(0, 229, 255, 0.5)';
+      button.style.transform = 'translateY(-2px)';
+    });
+    
+    button.addEventListener('mouseout', () => {
+      button.style.backgroundColor = 'transparent';
+      button.style.boxShadow = '0 0 10px rgba(0, 229, 255, 0.3)';
+      button.style.transform = 'translateY(0)';
+    });
+    
+    // Add click event
+    button.addEventListener('click', () => {
+      this.restartGame();
+    });
+    
+    // Add elements to crash screen
+    this.crashScreen.appendChild(title);
+    this.crashScreen.appendChild(button);
+    
+    // Add crash screen to document
+    document.body.appendChild(this.crashScreen);
+    
+    // Add pulse animation
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes pulse {
+        0% { opacity: 0.8; }
+        50% { opacity: 1; }
+        100% { opacity: 0.8; }
+      }
+    `;
+    document.head.appendChild(style);
   }
   
   // Restart the game after crash
@@ -1396,349 +1464,458 @@ class GameManager {
   
   // Add a new player to the game
   addPlayer(playerData) {
-    if (!playerData || !playerData.id) {
-      return;
-    }
-    
-    log(`Adding player: ${playerData.id}`);
-    
-    // Don't add the player if they already exist
-    if (this.players[playerData.id]) {
-      log(`Player ${playerData.id} already exists, updating data`);
-      this.players[playerData.id] = playerData;
-      return;
-    }
-    
-    this.players[playerData.id] = playerData;
-    
-    // Don't create a spaceship if the scene doesn't exist yet
-    if (!this.scene || !window.spaceshipManager) {
-      log('Scene or spaceship manager not ready, deferring ship creation');
-      return;
-    }
-    
     try {
-      // Create the spaceship with a random color if none provided
-      const color = playerData.color || this.getRandomPlayerColor();
-      const ship = window.spaceshipManager.createSpaceship(color);
-      
-      // Set initial position if provided
-      if (playerData.position) {
-        ship.position.set(
-          playerData.position.x || 0,
-          playerData.position.y || 0,
-          playerData.position.z || 0
-        );
+      if (!playerData || !playerData.id) {
+        console.error('Invalid player data:', playerData);
+        return;
       }
       
-      // Set initial rotation if provided
-      if (playerData.rotation) {
-        ship.rotation.set(
-          playerData.rotation.x || 0,
-          playerData.rotation.y || 0,
-          playerData.rotation.z || 0
-        );
-      }
+      log(`Adding player: ${playerData.id} (${playerData.username || 'Unknown'}) with color: ${playerData.color || 'default'}`);
       
-      // Add username tag above the ship
-      this.createUsernameTag(ship, playerData);
+      // Store player data
+      this.players[playerData.id] = playerData;
       
-      // Initialize physics state for this ship
-      this.shipPhysics[playerData.id] = {
-        velocity: new THREE.Vector3(0, 0, 0),
-        acceleration: new THREE.Vector3(0, 0, 0),
-        rotationVelocity: new THREE.Vector3(0, 0, 0),
-        lastPosition: ship.position.clone(),
-        lastUpdate: Date.now()
-      };
-      
-      this.scene.add(ship);
-      this.playerShips[playerData.id] = ship;
-      
-      // Update player count
-      this.updatePlayerCount();
-      
-      log(`Player ${playerData.id} added with ship`);
-    } catch (error) {
-      console.error(`Error adding player ${playerData.id}:`, error);
-    }
-  }
-  
-  // Remove a player from the game
-  removePlayer(playerId) {
-    if (!playerId || !this.players[playerId]) {
-      return;
-    }
-    
-    log(`Removing player: ${playerId}`);
-    
-    // Remove ship from scene
-    if (this.playerShips[playerId]) {
-      // Clean up any username tag resources
-      const ship = this.playerShips[playerId];
-      if (ship.userData && ship.userData.nameTag) {
-        // Remove the sprite from the ship
-        ship.remove(ship.userData.nameTag);
+      // If player ship already exists, just update its data
+      if (this.playerShips[playerData.id]) {
+        log(`Player ship already exists for ${playerData.id}, updating data`);
         
-        // Dispose of texture and material to prevent memory leaks
-        if (ship.userData.nameTag.material) {
-          if (ship.userData.nameTag.material.map) {
-            ship.userData.nameTag.material.map.dispose();
-          }
-          ship.userData.nameTag.material.dispose();
+        // Update the username label if needed
+        const ship = this.playerShips[playerData.id];
+        if (ship) {
+          // Remove old username label if it exists
+          ship.children.forEach(child => {
+            if (child.isSprite && child.userData && child.userData.type === 'nameTag') {
+              ship.remove(child);
+            }
+          });
+          
+          // Add new username label
+          const usernameLabel = this.createUsernameLabel(playerData.username || 'Unknown');
+          ship.add(usernameLabel);
+          ship.userData.nameTag = usernameLabel;
         }
         
-        ship.userData.nameTag = null;
+        // Update player count
+        this.updatePlayerCount();
+        return;
       }
       
-      // Remove ship from scene
-      this.scene.remove(this.playerShips[playerId]);
-      delete this.playerShips[playerId];
+      // Create ship for the player
+      if (!this.scene) {
+        log('Scene not initialized, deferring ship creation');
+        // Schedule a retry after scene is initialized
+        setTimeout(() => {
+          if (this.scene && this.players[playerData.id]) {
+            log(`Retrying ship creation for player ${playerData.id} after scene init`);
+            this.addPlayer(playerData);
+          }
+        }, 1000);
+        
+        // Update player count
+        this.updatePlayerCount();
+        return;
+      }
+      
+      if (!window.spaceshipManager) {
+        console.error('SpaceshipManager not available');
+        // Schedule a retry after spaceshipManager is available
+        setTimeout(() => {
+          if (window.spaceshipManager && this.players[playerData.id]) {
+            log(`Retrying ship creation for player ${playerData.id} after SpaceshipManager init`);
+            this.addPlayer(playerData);
+          }
+        }, 1000);
+        
+        // Update player count
+        this.updatePlayerCount();
+        return;
+      }
+      
+      // Use player's chosen color or fallback to default
+      const playerColor = playerData.color || '#00FFFF'; // Default cyan color if no color provided
+      log(`Creating ship for player ${playerData.id} with color: ${playerColor}`);
+      
+      const shipMesh = window.spaceshipManager.createSpaceship(playerColor);
+      
+      if (shipMesh) {
+        // Set initial position and rotation
+        if (playerData.position) {
+          shipMesh.position.set(
+            playerData.position.x || 0,
+            playerData.position.y || 0,
+            playerData.position.z || 0
+          );
+        } else {
+          // Default position if none provided
+          shipMesh.position.set(0, 50, 0);
+        }
+        
+        if (playerData.rotation) {
+          shipMesh.rotation.set(
+            playerData.rotation.x || 0,
+            playerData.rotation.y || 0,
+            playerData.rotation.z || 0
+          );
+        }
+        
+        // Add username label above ship
+        const usernameLabel = this.createUsernameLabel(playerData.username || 'Unknown');
+        shipMesh.add(usernameLabel);
+        shipMesh.userData.nameTag = usernameLabel;
+        
+        // Store the ship
+        this.playerShips[playerData.id] = shipMesh;
+        
+        // Add to scene
+        this.scene.add(shipMesh);
+        
+        log(`Created ship for player ${playerData.id} with color ${playerColor}`);
+      } else {
+        console.error(`Failed to create ship for player ${playerData.id}`);
+        // Schedule a retry
+        setTimeout(() => {
+          if (this.players[playerData.id] && !this.playerShips[playerData.id]) {
+            log(`Retrying ship creation for player ${playerData.id}`);
+            this.addPlayer(playerData);
+          }
+        }, 1000);
+      }
+      
+      // Initialize physics data for the player
+      // ... existing code ...
+    } catch (error) {
+      console.error(`Error adding player ${playerData?.id}:`, error);
+      // Schedule a retry after error
+      setTimeout(() => {
+        if (playerData && playerData.id && this.players[playerData.id] && !this.playerShips[playerData.id]) {
+          log(`Retrying ship creation for player ${playerData.id} after error`);
+          this.addPlayer(playerData);
+        }
+      }, 2000);
+      
+      // Still try to update player count even if there was an error
+      try {
+        this.updatePlayerCount();
+      } catch (countError) {
+        console.error('Error updating player count:', countError);
+      }
     }
-    
-    // Remove physics state
-    if (this.shipPhysics[playerId]) {
-      delete this.shipPhysics[playerId];
-    }
-    
-    // Remove player data
-    delete this.players[playerId];
-    
-    // Update player count
-    this.updatePlayerCount();
   }
   
-  // Update player positions from server data
+  // Helper method to generate a random color for players
+  getRandomPlayerColor() {
+    const colors = [
+      '#FF5733', // Red-Orange
+      '#33FF57', // Green
+      '#3357FF', // Blue
+      '#FF33F5', // Pink
+      '#F5FF33', // Yellow
+      '#33FFF5', // Cyan
+      '#FF3333', // Red
+      '#33FF33', // Lime
+      '#3333FF', // Blue
+      '#FF33FF', // Magenta
+    ];
+    return colors[Math.floor(Math.random() * colors.length)];
+  }
+  
+  // Add method to create better username labels
+  createUsernameLabel(username) {
+    // Create a canvas for the username
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    canvas.width = 256;
+    canvas.height = 128;
+    
+    // Add a semi-transparent background for better visibility
+    context.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Add a border
+    context.strokeStyle = '#FFFFFF';
+    context.lineWidth = 3;
+    context.strokeRect(5, 5, canvas.width - 10, canvas.height - 10);
+    
+    // Set font and draw text
+    context.font = 'Bold 40px Arial';
+    context.fillStyle = 'white';
+    context.textAlign = 'center';
+    context.fillText(username, 128, 64);
+    
+    // Create texture from canvas
+    const texture = new THREE.CanvasTexture(canvas);
+    
+    // Create sprite material
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true
+    });
+    
+    // Create sprite
+    const sprite = new THREE.Sprite(material);
+    sprite.scale.set(10, 5, 1);
+    sprite.position.set(0, 12, 0); // Position higher above the ship for better visibility
+    
+    // Ensure the sprite is always visible
+    sprite.renderOrder = 999;
+    material.depthTest = false;
+    
+    // Store reference to the sprite
+    sprite.userData = { type: 'nameTag', username: username };
+    
+    return sprite;
+  }
+  
+  // Update the username tag to always face the camera
+  updateUsernameTags() {
+    try {
+      // For each player ship, make sure the username tag faces the camera
+      for (const playerId in this.playerShips) {
+        const ship = this.playerShips[playerId];
+        if (!ship) continue;
+        
+        // Find the username tag in the ship's children
+        let nameTag = null;
+        
+        // First check if it's stored in userData
+        if (ship.userData && ship.userData.nameTag) {
+          nameTag = ship.userData.nameTag;
+        } else {
+          // Otherwise search through children
+          ship.children.forEach(child => {
+            if (child.isSprite && child.userData && child.userData.type === 'nameTag') {
+              nameTag = child;
+              // Store for future reference
+              ship.userData = ship.userData || {};
+              ship.userData.nameTag = nameTag;
+            }
+          });
+        }
+        
+        if (nameTag) {
+          // Username tags are sprites which automatically face the camera,
+          // but we need to ensure they stay above the ship as it moves
+          
+          // Make sure the tag is visible from all angles
+          nameTag.material.depthTest = false;
+          nameTag.renderOrder = 999; // Render after everything else
+          
+          // Ensure the tag is positioned correctly above the ship
+          nameTag.position.set(0, 10, 0);
+          
+          // If the player has a username in their data, update the tag if needed
+          const player = this.players[playerId];
+          if (player && player.username && nameTag.userData && 
+              nameTag.userData.username !== player.username) {
+            
+            // Username changed, update the tag
+            const newTag = this.createUsernameLabel(player.username);
+            ship.remove(nameTag);
+            ship.add(newTag);
+            ship.userData.nameTag = newTag;
+            
+            log(`Updated username tag for player ${playerId} to ${player.username}`);
+          }
+        } else if (this.players[playerId] && this.players[playerId].username) {
+          // No tag found but we have username data, create a new tag
+          const newTag = this.createUsernameLabel(this.players[playerId].username);
+          ship.add(newTag);
+          ship.userData = ship.userData || {};
+          ship.userData.nameTag = newTag;
+          
+          log(`Created missing username tag for player ${playerId}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error updating username tags:', error);
+    }
+  }
+  
+  // Add updatePlayerCount method to GameManager class
+  updatePlayerCount() {
+    try {
+      // Update player count display if element exists
+      const playerCountElement = document.getElementById('player-count');
+      if (playerCountElement) {
+        const count = Object.keys(this.players).length;
+        playerCountElement.textContent = `PILOTS ONLINE: ${count}`;
+        log(`Updated player count: ${count}`);
+      } else {
+        // If we can't find the element by ID, try using the class property
+        if (this.playerCountElement) {
+          const count = Object.keys(this.players).length;
+          this.playerCountElement.textContent = `PILOTS ONLINE: ${count}`;
+          log(`Updated player count using class property: ${count}`);
+        } else {
+          log('Player count element not found');
+        }
+      }
+    } catch (error) {
+      console.error('Error updating player count:', error);
+    }
+  }
+  
+  // Update remote players based on server data
   updatePlayers(players) {
-    // Add new players and update existing ones
     for (const id in players) {
       if (!this.players[id]) {
-        // New player
         this.addPlayer(players[id]);
       } else if (id !== this.localPlayerId) {
-        // Update existing player (except local player)
         const playerData = players[id];
         const ship = this.playerShips[id];
-        
         if (ship) {
-          // Smoothly interpolate to new position
-          const targetPosition = new THREE.Vector3(
+          // Update ship position and rotation with smooth interpolation
+          ship.position.lerp(new THREE.Vector3(
             playerData.position.x,
             playerData.position.y,
             playerData.position.z
-          );
+          ), 0.2);
           
-          const targetRotation = new THREE.Euler(
-            playerData.rotation.x,
-            playerData.rotation.y,
-            playerData.rotation.z
-          );
+          ship.rotation.x += (playerData.rotation.x - ship.rotation.x) * 0.2;
+          ship.rotation.y += (playerData.rotation.y - ship.rotation.y) * 0.2;
+          ship.rotation.z += (playerData.rotation.z - ship.rotation.z) * 0.2;
           
-          // Simple interpolation
-          ship.position.lerp(targetPosition, 0.1);
-          
-          // Interpolate rotation (more complex)
-          ship.rotation.x += (targetRotation.x - ship.rotation.x) * 0.1;
-          ship.rotation.y += (targetRotation.y - ship.rotation.y) * 0.1;
-          ship.rotation.z += (targetRotation.z - ship.rotation.z) * 0.1;
-          
-          // Check if username has changed and update the nametag if needed
-          if (playerData.username !== this.players[id].username) {
-            // Remove old nametag if it exists
-            if (ship.userData && ship.userData.nameTag) {
-              ship.remove(ship.userData.nameTag);
-              ship.userData.nameTag = null;
+          // Update trail for remote player
+          if (playerData.trailActive) {
+            this.updateTrail(id, ship.position.clone(), playerData.color);
+          } else if (this.playerTrails[id] && this.playerTrails[id].segments.length > 0) {
+            // Clear trail when not active
+            this.playerTrails[id].segments = [];
+            if (this.playerTrails[id].mesh && this.playerTrails[id].mesh.geometry) {
+              this.playerTrails[id].mesh.geometry.dispose();
+              this.playerTrails[id].mesh.geometry = new THREE.BufferGeometry();
             }
-            
-            // Create new nametag with updated username
-            this.createUsernameTag(ship, playerData);
           }
           
-          // Update player data
           this.players[id] = playerData;
         }
       }
     }
     
-    // Remove players that no longer exist
+    // Handle players that are no longer in the game
     for (const id in this.players) {
       if (!players[id] && id !== this.localPlayerId) {
+        this.handleCrash(id, this.playerShips[id]?.position || new THREE.Vector3());
         this.removePlayer(id);
       }
     }
+    
+    this.updatePlayerCount();
   }
   
-  // Update player count display
-  updatePlayerCount() {
-    if (this.playerCountElement) {
-      const count = Object.keys(this.players).length;
-      this.playerCountElement.textContent = `Players: ${count}`;
-    }
-  }
-  
-  // Get a random color for player ships
-  getRandomPlayerColor() {
-    const colors = [
-      '#3388ff', // blue
-      '#ff3333', // red
-      '#33ff33', // green
-      '#ffaa00', // orange
-      '#aa33ff', // purple
-      '#33ffff', // cyan
-      '#ff33ff'  // magenta
-    ];
-    
-    return colors[Math.floor(Math.random() * colors.length)];
-  }
-  
-  // Apply gravitational forces from celestial bodies
-  applyGravitationalForces(ship, physics) {
-    // Planet gravity (assuming planet is at origin)
-    const planetPos = new THREE.Vector3(0, 0, 0);
-    this.applyGravityFromBody(ship.position, physics, planetPos, this.physics.planetMass);
-    
-    // Sun gravity (assuming sun is at a fixed position)
-    const sunPos = new THREE.Vector3(200, 0, -200);
-    this.applyGravityFromBody(ship.position, physics, sunPos, this.physics.sunMass);
-  }
-  
-  // Apply gravity from a specific celestial body
-  applyGravityFromBody(shipPos, physics, bodyPos, bodyMass) {
-    // Calculate direction vector from ship to body
-    const direction = new THREE.Vector3();
-    direction.subVectors(bodyPos, shipPos);
-    
-    // Calculate distance (squared for efficiency)
-    const distanceSq = direction.lengthSq();
-    
-    // Normalize direction vector
-    direction.normalize();
-    
-    // Skip if too far away (optimization)
-    if (distanceSq > 10000) {
-      return;
-    }
-    
-    // Calculate gravity force magnitude: G * m1 * m2 / r^2
-    // We simplify by assuming the ship has a fixed mass of 1
-    // and incorporating G (gravitational constant) into the bodyMass
-    let forceMagnitude = bodyMass / Math.max(distanceSq, 100);
-    
-    // Scale by the gravity strength parameter
-    forceMagnitude *= this.physics.gravityStrength;
-    
-    // Apply force as acceleration (F = ma, but since m=1 for the ship, F = a)
-    const gravityForce = direction.multiplyScalar(forceMagnitude);
-    physics.acceleration.add(gravityForce);
-  }
-  
-  // Force move forward - debug method to help diagnose issues
-  forceMoveForward() {
-    if (!this.localPlayerId || !this.playerShips[this.localPlayerId]) {
-      console.error('Cannot force movement: No local player ship');
-      return;
-    }
-    
-    log('Force-moving player forward');
-    
-    const ship = this.playerShips[this.localPlayerId];
-    const physics = this.shipPhysics[this.localPlayerId];
-    
-    if (!physics) {
-      console.error('Cannot force movement: No physics data');
-      return;
-    }
-    
-    // Apply a strong forward impulse
-    const forwardThrust = new THREE.Vector3(0, 0, -0.5); // Much stronger than normal
-    forwardThrust.applyQuaternion(ship.quaternion);
-    physics.velocity.add(forwardThrust);
-    
-    log(`Applied impulse: ${forwardThrust.x.toFixed(2)}, ${forwardThrust.y.toFixed(2)}, ${forwardThrust.z.toFixed(2)}`);
-    log(`New velocity: ${physics.velocity.length().toFixed(2)}`);
-  }
-  
-  // Create speed lines for visual movement feedback
-  createSpeedLines() {
-    if (!isThreeLoaded()) {
-      console.error('THREE.js not loaded. Cannot create speed lines.');
-      return;
-    }
-    
-    log('Creating speed lines for movement feedback');
-    
+  // Remove a player from the game
+  removePlayer(playerId) {
     try {
-      // Create a particle system for speed lines
-      const particleCount = 200;
-      const speedLinesGeometry = new THREE.BufferGeometry();
-      const positions = new Float32Array(particleCount * 3);
-      const colors = new Float32Array(particleCount * 3);
-      const sizes = new Float32Array(particleCount);
-      
-      // Initialize particles in a spherical pattern around the camera
-      for (let i = 0; i < particleCount; i++) {
-        const i3 = i * 3;
-        
-        // Random position in a sphere around the origin
-        const radius = 10 + Math.random() * 20;
-        const theta = Math.random() * Math.PI * 2;
-        const phi = Math.random() * Math.PI;
-        
-        positions[i3] = radius * Math.sin(phi) * Math.cos(theta);
-        positions[i3+1] = radius * Math.sin(phi) * Math.sin(theta);
-        positions[i3+2] = radius * Math.cos(phi);
-        
-        // White color with slight blue tint
-        colors[i3] = 0.8 + Math.random() * 0.2;     // R
-        colors[i3+1] = 0.8 + Math.random() * 0.2;   // G
-        colors[i3+2] = 1.0;                         // B
-        
-        // Random sizes
-        sizes[i] = 0.1 + Math.random() * 0.3;
+      if (!playerId || !this.players[playerId]) {
+        return;
       }
       
-      speedLinesGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-      speedLinesGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-      speedLinesGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+      log(`Removing player: ${playerId}`);
       
-      // Create shader material for speed lines
-      const speedLinesMaterial = new THREE.ShaderMaterial({
-        uniforms: {
-          pointTexture: { value: new THREE.TextureLoader().load(createParticleTexture()) }
-        },
-        vertexShader: `
-          attribute float size;
-          varying vec3 vColor;
-          void main() {
-            vColor = color;
-            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-            gl_PointSize = size * (300.0 / -mvPosition.z);
-            gl_Position = projectionMatrix * mvPosition;
+      // Remove the ship from the scene
+      if (this.playerShips[playerId]) {
+        const ship = this.playerShips[playerId];
+        
+        // Clean up any materials and textures
+        ship.traverse(object => {
+          if (object.material) {
+            if (Array.isArray(object.material)) {
+              object.material.forEach(material => {
+                if (material.map) material.map.dispose();
+                material.dispose();
+              });
+            } else {
+              if (object.material.map) object.material.map.dispose();
+              object.material.dispose();
+            }
           }
-        `,
-        fragmentShader: `
-          uniform sampler2D pointTexture;
-          varying vec3 vColor;
-          void main() {
-            gl_FragColor = vec4(vColor, 1.0) * texture2D(pointTexture, gl_PointCoord);
-            if (gl_FragColor.a < 0.3) discard;
+          
+          if (object.geometry) {
+            object.geometry.dispose();
           }
-        `,
-        blending: THREE.AdditiveBlending,
-        depthTest: false,
-        transparent: true,
-        vertexColors: true
-      });
+        });
+        
+        // Remove from scene
+        this.scene.remove(ship);
+        delete this.playerShips[playerId];
+      }
       
-      this.speedLines = new THREE.Points(speedLinesGeometry, speedLinesMaterial);
-      this.speedLines.visible = false; // Initially hidden
+      // Remove physics data
+      if (this.shipPhysics[playerId]) {
+        delete this.shipPhysics[playerId];
+      }
+      
+      // Remove player data
+      delete this.players[playerId];
+      
+      // Update player count
+      this.updatePlayerCount();
+      
+      log(`Player ${playerId} removed from game`);
+    } catch (error) {
+      console.error(`Error removing player ${playerId}:`, error);
+    }
+  }
+  
+  // Create speed lines for movement feedback
+  createSpeedLines() {
+    try {
+      log('Creating speed lines for movement feedback');
+      
+      // Create a group to hold all speed lines
+      this.speedLines = new THREE.Group();
       this.scene.add(this.speedLines);
       
-      // Store original positions for resetting
-      this.speedLines.userData = {
-        originalPositions: positions.slice(),
-        currentSpeed: 0
-      };
+      // Number of lines to create
+      const lineCount = 100;
+      
+      // Create line material
+      const lineMaterial = new THREE.LineBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.4
+      });
+      
+      // Create lines
+      for (let i = 0; i < lineCount; i++) {
+        // Create random line geometry
+        const lineGeometry = new THREE.BufferGeometry();
+        
+        // Create a single line segment
+        const points = [];
+        
+        // Random position within a cylinder around the camera
+        const radius = 20 + Math.random() * 30;
+        const angle = Math.random() * Math.PI * 2;
+        const length = 2 + Math.random() * 8;
+        
+        const x = Math.cos(angle) * radius;
+        const y = Math.random() * 40 - 20;
+        const z = Math.sin(angle) * radius;
+        
+        // Line start and end points
+        points.push(new THREE.Vector3(x, y, z));
+        points.push(new THREE.Vector3(x, y, z - length));
+        
+        // Set geometry attributes
+        lineGeometry.setFromPoints(points);
+        
+        // Create line
+        const line = new THREE.Line(lineGeometry, lineMaterial);
+        
+        // Store original position for animation
+        line.userData = {
+          originalPosition: new THREE.Vector3(x, y, z),
+          length: length,
+          speed: 0.1 + Math.random() * 0.3
+        };
+        
+        // Add to group
+        this.speedLines.add(line);
+      }
+      
+      // Initially hide speed lines
+      this.speedLines.visible = false;
       
       log('Speed lines created successfully');
     } catch (error) {
@@ -1746,128 +1923,278 @@ class GameManager {
     }
   }
   
-  // Update speed lines based on current velocity
+  // Update speed lines based on player velocity
   updateSpeedLines() {
-    if (!this.speedLines || !this.localPlayerId || !this.shipPhysics[this.localPlayerId]) return;
-    
-    const physics = this.shipPhysics[this.localPlayerId];
-    const velocity = physics.velocity;
-    const speed = velocity.length();
-    
-    // Only show speed lines above certain speed
-    this.speedLines.visible = speed > 0.2;
-    if (!this.speedLines.visible) return;
-    
-    // Update speed lines positions
-    const positions = this.speedLines.geometry.attributes.position.array;
-    const originalPositions = this.speedLines.userData.originalPositions;
-    const cameraDirection = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
-    
-    // Calculate elongation factor based on speed
-    const elongationFactor = Math.min(speed * 2, 5);
-    this.speedLines.userData.currentSpeed = speed;
-    
-    for (let i = 0; i < positions.length; i += 3) {
-      // Get original position
-      const originalX = originalPositions[i];
-      const originalY = originalPositions[i+1];
-      const originalZ = originalPositions[i+2];
+    try {
+      // Skip if speed lines aren't created yet
+      if (!this.speedLines) return;
       
-      // Create elongated effect in the direction of movement
-      positions[i] = originalX - cameraDirection.x * elongationFactor;
-      positions[i+1] = originalY - cameraDirection.y * elongationFactor;
-      positions[i+2] = originalZ - cameraDirection.z * elongationFactor;
+      // Get local player and physics
+      if (!this.localPlayerId || !this.playerShips[this.localPlayerId]) {
+        this.speedLines.visible = false;
+        return;
+      }
       
-      // Randomly reset some particles for a continuous effect
-      if (Math.random() < 0.01) {
-        const radius = 10 + Math.random() * 20;
-        const theta = Math.random() * Math.PI * 2;
-        const phi = Math.random() * Math.PI;
+      const physics = this.shipPhysics[this.localPlayerId];
+      if (!physics) {
+        this.speedLines.visible = false;
+        return;
+      }
+      
+      // Get velocity magnitude
+      const speed = physics.velocity.length();
+      
+      // Show speed lines only when moving fast enough
+      if (speed > 1.0) {
+        this.speedLines.visible = true;
         
-        positions[i] = radius * Math.sin(phi) * Math.cos(theta);
-        positions[i+1] = radius * Math.sin(phi) * Math.sin(theta);
-        positions[i+2] = radius * Math.cos(phi);
+        // Position speed lines relative to the camera
+        this.speedLines.position.copy(this.camera.position);
+        this.speedLines.rotation.copy(this.camera.rotation);
         
-        originalPositions[i] = positions[i];
-        originalPositions[i+1] = positions[i+1];
-        originalPositions[i+2] = positions[i+2];
+        // Update each line
+        this.speedLines.children.forEach(line => {
+          // Get points from the line
+          const positions = line.geometry.attributes.position.array;
+          
+          // Move the line forward
+          positions[2] -= line.userData.speed * speed;
+          positions[5] -= line.userData.speed * speed;
+          
+          // Reset the line if it's too far
+          if (positions[2] < -50) {
+            positions[0] = line.userData.originalPosition.x;
+            positions[1] = line.userData.originalPosition.y;
+            positions[2] = line.userData.originalPosition.z;
+            
+            positions[3] = line.userData.originalPosition.x;
+            positions[4] = line.userData.originalPosition.y;
+            positions[5] = line.userData.originalPosition.z - line.userData.length;
+          }
+          
+          // Update the geometry
+          line.geometry.attributes.position.needsUpdate = true;
+        });
+        
+        // Adjust opacity based on speed
+        const opacity = Math.min(0.1 + speed * 0.1, 0.8);
+        this.speedLines.children.forEach(line => {
+          line.material.opacity = opacity;
+        });
+      } else {
+        this.speedLines.visible = false;
+      }
+    } catch (error) {
+      console.error('Error updating speed lines:', error);
+    }
+  }
+  
+  // Apply gravitational forces from celestial objects
+  applyGravitationalForces(ship, physics) {
+    try {
+      // Skip if no celestial objects
+      if (!this.celestialObjects) return;
+      
+      // Gravitational constant (adjusted for gameplay)
+      const G = 0.5;
+      
+      // Apply force from planets
+      if (this.celestialObjects.planets) {
+        this.celestialObjects.planets.forEach(planet => {
+          // Vector from ship to planet
+          const direction = new THREE.Vector3();
+          direction.subVectors(planet.position, ship.position);
+          
+          // Distance squared (for inverse square law)
+          const distanceSquared = direction.lengthSq();
+          
+          // Skip if too far away
+          if (distanceSquared > 10000) return;
+          
+          // Normalize direction
+          direction.normalize();
+          
+          // Calculate force magnitude (F = G * m1 * m2 / r^2)
+          // We'll use planet.scale as a proxy for mass
+          const planetMass = planet.scale.x * 10;
+          const forceMagnitude = G * planetMass / distanceSquared;
+          
+          // Apply force to acceleration
+          const force = direction.multiplyScalar(forceMagnitude);
+          physics.acceleration.add(force);
+        });
+      }
+      
+      // Apply force from sun (if exists)
+      if (this.celestialObjects.sun) {
+        // Vector from ship to sun
+        const direction = new THREE.Vector3();
+        direction.subVectors(this.celestialObjects.sun.position, ship.position);
+        
+        // Distance squared (for inverse square law)
+        const distanceSquared = direction.lengthSq();
+        
+        // Skip if too far away
+        if (distanceSquared > 50000) return;
+        
+        // Normalize direction
+        direction.normalize();
+        
+        // Calculate force magnitude (F = G * m1 * m2 / r^2)
+        // Sun has much more mass than planets
+        const sunMass = 100;
+        const forceMagnitude = G * sunMass / distanceSquared;
+        
+        // Apply force to acceleration
+        const force = direction.multiplyScalar(forceMagnitude);
+        physics.acceleration.add(force);
+      }
+    } catch (error) {
+      console.error('Error applying gravitational forces:', error);
+    }
+  }
+  
+  // Handle player crash
+  handleCrash(playerId, position) {
+    const ship = this.playerShips[playerId];
+    if (!ship) return;
+    
+    log(`Player ${playerId} crashed at ${position.x}, ${position.y}, ${position.z}`);
+    ship.visible = false;
+    
+    // Remove trail
+    if (this.playerTrails[playerId]) {
+      this.scene.remove(this.playerTrails[playerId].mesh);
+      this.playerTrails[playerId].mesh.geometry.dispose();
+      this.playerTrails[playerId].mesh.material.dispose();
+      delete this.playerTrails[playerId];
+    }
+    
+    this.createCollisionEffect(position);
+    this.playCollisionSound();
+    
+    if (playerId === this.localPlayerId) {
+      this.showCrashScreen();
+      
+      // Notify server of crash (optional for multiplayer sync)
+      if (window.wsManager && window.wsManager.isConnected()) {
+        window.wsManager.sendMessage({ type: 'playerCrashed', playerId });
+      }
+    }
+  }
+  
+  // Create and update player trail
+  updateTrail(playerId, position, color) {
+    // Get player color from player data if available
+    if (!color && this.players[playerId] && this.players[playerId].color) {
+      color = this.players[playerId].color;
+    }
+    
+    // Convert string color to hex if needed
+    const colorHex = (typeof color === 'string') ? 
+      new THREE.Color(color).getHex() : (color || 0x00ffff);
+    
+    if (!this.playerTrails[playerId]) {
+      const material = new THREE.MeshBasicMaterial({
+        color: colorHex, // Use player's color
+        emissive: colorHex,
+        emissiveIntensity: 1,
+        transparent: true,
+        opacity: 0.8,
+        side: THREE.DoubleSide
+      });
+      
+      const geometry = new THREE.BufferGeometry();
+      const mesh = new THREE.Mesh(geometry, material);
+      this.scene.add(mesh);
+      
+      // Add a point light to make the trail glow
+      const light = new THREE.PointLight(colorHex, 0.5, 10);
+      mesh.add(light);
+      
+      this.playerTrails[playerId] = { 
+        mesh, 
+        segments: [],
+        color: colorHex
+      };
+      
+      log(`Created trail for player ${playerId} with color ${color}`);
+    }
+    
+    const trail = this.playerTrails[playerId];
+    
+    // Only add a new segment if it's far enough from the last one
+    const lastPos = trail.segments.length > 0 ? trail.segments[trail.segments.length - 1] : null;
+    if (!lastPos || lastPos.distanceTo(position) > 1.0) {
+      trail.segments.push(position);
+      
+      // Update light position to follow the end of the trail
+      if (trail.light) {
+        trail.light.position.copy(position);
+      }
+      
+      // Limit trail length for performance
+      if (trail.segments.length > 100) {
+        trail.segments.shift();
+      }
+      
+      // Update trail geometry
+      if (trail.segments.length > 1) {
+        trail.mesh.geometry.dispose(); // Clean up old geometry
+        
+        // Create a tube geometry following the trail path
+        const path = new THREE.CatmullRomCurve3(trail.segments);
+        trail.mesh.geometry = new THREE.TubeGeometry(
+          path,
+          trail.segments.length - 1, // Segments
+          0.5, // Radius
+          8, // Radial segments
+          false // Closed
+        );
+      }
+    }
+  }
+  
+  // Check if a ship collides with a trail
+  checkTrailCollision(shipPosition, trail) {
+    if (!trail.segments || trail.segments.length < 2) return null;
+    
+    const shipRadius = 5; // Approximate ship size
+    const trailRadius = 0.5; // Trail radius
+    const collisionThreshold = shipRadius + trailRadius;
+    
+    // Check each segment of the trail
+    for (let i = 0; i < trail.segments.length - 1; i++) {
+      const start = trail.segments[i];
+      const end = trail.segments[i + 1];
+      
+      // Calculate closest point on line segment to ship position
+      const line = end.clone().sub(start);
+      const lineLength = line.length();
+      const lineDirection = line.clone().normalize();
+      
+      const shipToStart = shipPosition.clone().sub(start);
+      const projection = shipToStart.dot(lineDirection);
+      
+      let closestPoint;
+      if (projection <= 0) {
+        closestPoint = start.clone();
+      } else if (projection >= lineLength) {
+        closestPoint = end.clone();
+      } else {
+        closestPoint = start.clone().add(lineDirection.multiplyScalar(projection));
+      }
+      
+      const distance = shipPosition.distanceTo(closestPoint);
+      if (distance < collisionThreshold) {
+        return { 
+          collided: true, 
+          position: closestPoint,
+          distance: distance
+        };
       }
     }
     
-    // Update the geometry
-    this.speedLines.geometry.attributes.position.needsUpdate = true;
-  }
-
-  // Create a username tag that floats above the player's ship
-  createUsernameTag(ship, playerData) {
-    if (!ship || !playerData || !playerData.username) return;
-    
-    // Create a canvas for the username text
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
-    canvas.width = 256;
-    canvas.height = 64;
-    
-    // Set canvas background to be transparent
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Style the text
-    context.font = 'bold 32px Arial';
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    
-    // Add a background with rounded corners for better visibility
-    context.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    context.roundRect(10, 10, canvas.width - 20, canvas.height - 20, 10);
-    context.fill();
-    
-    // Add a border with player color
-    context.strokeStyle = playerData.color || '#FFFFFF';
-    context.lineWidth = 3;
-    context.roundRect(10, 10, canvas.width - 20, canvas.height - 20, 10);
-    context.stroke();
-    
-    // Draw the text
-    context.fillStyle = '#FFFFFF';
-    context.fillText(playerData.username, canvas.width / 2, canvas.height / 2);
-    
-    // Create a texture from the canvas
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.needsUpdate = true;
-    
-    // Create a sprite material with the texture
-    const material = new THREE.SpriteMaterial({
-      map: texture,
-      transparent: true
-    });
-    
-    // Create the sprite
-    const sprite = new THREE.Sprite(material);
-    sprite.scale.set(5, 1.25, 1);
-    sprite.position.set(0, 8, 0); // Position above the ship
-    
-    // Add the sprite to the ship
-    ship.add(sprite);
-    
-    // Store reference to the sprite for updates
-    ship.userData = ship.userData || {};
-    ship.userData.nameTag = sprite;
-  }
-
-  // Update the username tag to always face the camera
-  updateUsernameTags() {
-    // For each player ship, make sure the username tag faces the camera
-    for (const playerId in this.playerShips) {
-      const ship = this.playerShips[playerId];
-      if (ship && ship.userData && ship.userData.nameTag) {
-        // Username tags are sprites which automatically face the camera,
-        // but we need to ensure they stay above the ship as it moves
-        const nameTag = ship.userData.nameTag;
-        
-        // Make sure the tag is visible from all angles
-        nameTag.material.depthTest = false;
-        nameTag.renderOrder = 1; // Render after everything else
-      }
-    }
+    return null;
   }
 } 
