@@ -23,8 +23,8 @@ A browser-based 3D multiplayer game where players control spaceships in a space 
 
 1. Clone this repository:
 ```
-git clone <repository-url>
-cd space-multiplayer
+git clone https://github.com/mertsgit/spacegame.git
+cd spacegame
 ```
 
 2. Install dependencies:
