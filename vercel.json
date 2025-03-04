@@ -1,0 +1,28 @@
+{
+  "rewrites": [
+    {
+      "source": "/ws-proxy",
+      "destination": "/api/ws-proxy"
+    },
+    {
+      "source": "/ws-proxy/send",
+      "destination": "/api/ws-proxy"
+    }
+  ],
+  "functions": {
+    "api/ws-proxy.js": {
+      "memory": 1024,
+      "maxDuration": 10
+    }
+  },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
+      ]
+    }
+  ]
+} 

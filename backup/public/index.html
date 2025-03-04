@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Multiplayer Spaceship Game</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Login Screen -->
+  <div id="login-screen">
+    <div class="login-container">
+      <h1>Space Multiplayer</h1>
+      <div class="form-group">
+        <input type="text" id="username-input" placeholder="Enter your username" maxlength="15">
+        <button id="login-button">Join Game</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game Screen (hidden initially) -->
+  <div id="game-screen" style="display: none;">
+    <div id="player-info">
+      <span id="username-display"></span>
+      <span id="players-count">Players: 0</span>
+    </div>
+    <div id="game-container"></div>
+    <div id="speedometer">0 km/h</div>
+    <button id="reset-game-button">Reset Game</button>
+  </div>
+
+  <!-- Loading Three.js from CDN - Using a more reliable version -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/examples/js/loaders/GLTFLoader.js"></script>
+  
+  <!-- Game Scripts -->
+  <script src="js/login.js"></script>
+  <script src="js/websocket.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/spaceship.js"></script>
+  <script src="js/celestialBodies.js"></script>
+  <script src="js/main.js"></script>
+  
+  <!-- Debug Fix Script -->
+  <script src="js/debug-fix.js"></script>
+</body>
+</html> 
