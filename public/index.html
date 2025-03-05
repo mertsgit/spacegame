@@ -4,17 +4,33 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Space Multiplayer Game</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --primary-color: #00e5ff;
+      --secondary-color: #7b68ee;
+      --accent-color: #ff00e5;
+      --dark-bg: #0a0e17;
+      --panel-bg: rgba(16, 23, 41, 0.85);
+      --border-glow: 0 0 10px var(--primary-color);
+      --text-glow: 0 0 5px var(--primary-color);
+    }
+    
     body { 
       margin: 0; 
       overflow: hidden; 
-      font-family: Arial, sans-serif;
+      font-family: 'Exo 2', sans-serif;
+      background-color: #000;
+      color: #fff;
     }
+    
     canvas { 
       display: block; 
       width: 100%; 
       height: 100%;
     }
+    
+    /* Login Screen */
     #login-screen {
       position: absolute;
       top: 0;
@@ -24,63 +40,177 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      background-color: rgba(0, 0, 0, 0.8);
+      background: radial-gradient(ellipse at center, rgba(10, 14, 23, 0.9) 0%, rgba(2, 3, 5, 0.98) 100%);
       z-index: 100;
+      backdrop-filter: blur(5px);
     }
+    
     #login-form {
-      background-color: #222;
-      padding: 2rem;
-      border-radius: 8px;
+      background-color: var(--panel-bg);
+      padding: 2.5rem;
+      border-radius: 12px;
       text-align: center;
       color: white;
-      box-shadow: 0 0 20px rgba(0, 128, 255, 0.5);
+      box-shadow: 0 0 30px rgba(0, 229, 255, 0.3);
+      border: 1px solid rgba(0, 229, 255, 0.3);
+      width: 350px;
+      position: relative;
+      overflow: hidden;
     }
+    
+    #login-form::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--primary-color), var(--secondary-color), var(--accent-color));
+      z-index: 1;
+    }
+    
     h1 {
-      color: #0088ff;
+      font-family: 'Orbitron', sans-serif;
+      color: var(--primary-color);
       margin-top: 0;
+      font-size: 2.2rem;
+      letter-spacing: 2px;
+      text-shadow: var(--text-glow);
+      margin-bottom: 0.5rem;
     }
+    
+    #login-form p {
+      color: #b0b6c4;
+      margin-bottom: 1.5rem;
+      font-size: 0.95rem;
+    }
+    
     input {
-      padding: 8px;
-      width: 200px;
-      margin-bottom: 1rem;
-      border-radius: 4px;
-      border: 1px solid #444;
-      background-color: #333;
+      padding: 12px 15px;
+      width: 100%;
+      margin-bottom: 1.5rem;
+      border-radius: 6px;
+      border: 1px solid rgba(0, 229, 255, 0.3);
+      background-color: rgba(10, 14, 23, 0.7);
       color: white;
+      font-family: 'Exo 2', sans-serif;
+      box-sizing: border-box;
+      transition: all 0.3s;
     }
+    
+    input:focus {
+      outline: none;
+      border-color: var(--primary-color);
+      box-shadow: var(--border-glow);
+    }
+    
     button {
-      padding: 8px 16px;
-      background-color: #0088ff;
+      padding: 12px 24px;
+      background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
       color: white;
       border: none;
-      border-radius: 4px;
+      border-radius: 6px;
       cursor: pointer;
-      transition: background-color 0.3s;
+      transition: all 0.3s;
+      font-family: 'Orbitron', sans-serif;
+      font-weight: 500;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      width: 100%;
     }
+    
     button:hover {
-      background-color: #0066cc;
+      box-shadow: var(--border-glow);
+      transform: translateY(-2px);
     }
+    
+    #login-status {
+      margin-top: 1rem;
+      min-height: 20px;
+      color: var(--accent-color);
+    }
+    
+    /* Game UI Elements */
+    .ui-panel {
+      position: absolute;
+      color: white;
+      background-color: var(--panel-bg);
+      padding: 15px;
+      border-radius: 8px;
+      font-size: 14px;
+      z-index: 10;
+      border: 1px solid rgba(0, 229, 255, 0.3);
+      box-shadow: 0 0 15px rgba(0, 229, 255, 0.15);
+      backdrop-filter: blur(5px);
+      transition: all 0.3s ease;
+    }
+    
+    .ui-panel:hover {
+      box-shadow: 0 0 20px rgba(0, 229, 255, 0.3);
+    }
+    
     #controls {
-      position: absolute;
-      bottom: 20px;
-      left: 20px;
-      color: white;
-      background-color: rgba(0, 0, 0, 0.5);
-      padding: 10px;
-      border-radius: 4px;
-      font-size: 12px;
-      z-index: 10;
+      bottom: 25px;
+      left: 25px;
+      max-width: 220px;
     }
-    #player-count {
-      position: absolute;
-      top: 20px;
-      right: 20px;
-      color: white;
-      background-color: rgba(0, 0, 0, 0.5);
-      padding: 10px;
+    
+    #controls div {
+      margin-bottom: 5px;
+    }
+    
+    #controls strong {
+      color: var(--primary-color);
+      font-family: 'Orbitron', sans-serif;
+      letter-spacing: 1px;
+      font-size: 15px;
+      display: block;
+      margin-top: 10px;
+      margin-bottom: 5px;
+      text-shadow: 0 0 3px var(--primary-color);
+    }
+    
+    #controls strong:first-child {
+      margin-top: 0;
+    }
+    
+    .key {
+      display: inline-block;
+      background-color: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(0, 229, 255, 0.5);
       border-radius: 4px;
-      font-size: 12px;
-      z-index: 10;
+      padding: 2px 6px;
+      margin-right: 5px;
+      font-family: 'Orbitron', sans-serif;
+      color: var(--primary-color);
+      min-width: 15px;
+      text-align: center;
+    }
+    
+    #player-count {
+      top: 25px;
+      right: 25px;
+      display: flex;
+      align-items: center;
+      font-family: 'Orbitron', sans-serif;
+    }
+    
+    #player-count::before {
+      content: '';
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      background-color: var(--primary-color);
+      border-radius: 50%;
+      margin-right: 10px;
+      box-shadow: 0 0 10px var(--primary-color);
+      animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+      0% { opacity: 0.6; }
+      50% { opacity: 1; }
+      100% { opacity: 0.6; }
     }
   </style>
 </head>
@@ -88,29 +218,36 @@
   <!-- Login screen -->
   <div id="login-screen">
     <div id="login-form">
-      <h1>Space Multiplayer</h1>
-      <p>Enter your username to join the game</p>
+      <h1>SPACE ODYSSEY</h1>
+      <p>Enter your callsign to join the multiplayer mission</p>
       <input type="text" id="username-input" placeholder="Username" autocomplete="off">
-      <br>
+      
+      <div style="margin-top: 1rem; margin-bottom: 1rem;">
+        <label for="color-input" style="color: white; display: block; margin-bottom: 0.5rem; text-align: left;">Choose your spaceship color:</label>
+        <input type="color" id="color-input" value="#00FFFF" style="width: 100%; height: 40px; border-radius: 6px; border: 1px solid rgba(0, 229, 255, 0.3); background-color: rgba(10, 14, 23, 0.7); cursor: pointer;">
+      </div>
+      
       <button id="login-button">Play</button>
       <div id="login-status"></div>
     </div>
   </div>
   
   <!-- Game UI -->
-  <div id="player-count">Players: 0</div>
-  <div id="controls">
-    <div><strong>Thrusters:</strong></div>
-    <div>W: Forward Acceleration</div>
-    <div>S: Backward Acceleration</div>
-    <div>A: Strafe Left</div>
-    <div>D: Strafe Right</div>
-    <div><strong>Rotation:</strong></div>
-    <div>↑/↓: Pitch Up/Down</div>
-    <div>←/→: Yaw Left/Right</div>
-    <div><strong>Other:</strong></div>
-    <div>Shift: Boost Speed</div>
-    <div>R: Reset Position</div>
+  <div id="player-count" class="ui-panel">PILOTS ONLINE: 0</div>
+  <div id="controls" class="ui-panel">
+    <strong>NAVIGATION</strong>
+    <div><span class="key">W</span> Forward Thrust</div>
+    <div><span class="key">S</span> Reverse Thrust</div>
+    <div><span class="key">A</span> Strafe Left</div>
+    <div><span class="key">D</span> Strafe Right</div>
+    
+    <strong>ORIENTATION</strong>
+    <div><span class="key">↑</span><span class="key">↓</span> Pitch Control</div>
+    <div><span class="key">←</span><span class="key">→</span> Yaw Control</div>
+    
+    <strong>SYSTEMS</strong>
+    <div><span class="key">SHIFT</span> Afterburner</div>
+    <div><span class="key">R</span> Emergency Reset</div>
   </div>
   
   <!-- Scripts -->
