@@ -2316,7 +2316,8 @@ class GameManager {
         if (this.isTouchOnElement(touch, thrustButton) && !this.touchState.thrustButton.active) {
           this.touchState.thrustButton.active = true;
           this.touchState.thrustButton.id = touch.identifier;
-          this.keyState.thrustForward = true;
+          // Make the thrust button control yaw instead
+          this.keyState.yawLeft = true;
           thrustButton.style.backgroundColor = 'rgba(0, 229, 255, 0.5)';
           thrustButton.style.boxShadow = '0 0 20px rgba(0, 229, 255, 0.7)';
           thrustButton.style.transform = 'scale(0.95)';
@@ -2374,7 +2375,8 @@ class GameManager {
         // Reset thrust button
         if (this.touchState.thrustButton.active && touch.identifier === this.touchState.thrustButton.id) {
           this.touchState.thrustButton.active = false;
-          this.keyState.thrustForward = false;
+          // Reset yaw control
+          this.keyState.yawLeft = false;
           thrustButton.style.backgroundColor = 'rgba(0, 229, 255, 0.2)';
           thrustButton.style.boxShadow = '0 0 15px rgba(0, 229, 255, 0.3)';
           thrustButton.style.transform = 'scale(1)';
@@ -2445,7 +2447,7 @@ class GameManager {
     // Thrust button directly sets the thrustForward key state
     // (This is now handled in the touch event handlers)
     
-    // Right joystick controls pitch and yaw
+    // Right joystick controls turning and strafing (reverting to original behavior)
     const rightJoystick = this.touchState.rightJoystick;
     if (rightJoystick.active) {
       // Normalize joystick values to -1 to 1 range
@@ -2453,17 +2455,14 @@ class GameManager {
       const rightX = Math.max(-1, Math.min(1, rightJoystick.deltaX / maxRadius));
       const rightY = Math.max(-1, Math.min(1, rightJoystick.deltaY / maxRadius));
       
-      // Set key states based on joystick position
-      this.keyState.pitchUp = rightY < -0.3;
-      this.keyState.pitchDown = rightY > 0.3;
-      this.keyState.yawLeft = rightX < -0.3;
-      this.keyState.yawRight = rightX > 0.3;
-    } else {
-      // Reset rotation key states when joystick is not active
-      this.keyState.pitchUp = false;
-      this.keyState.pitchDown = false;
-      this.keyState.yawLeft = false;
-      this.keyState.yawRight = false;
+      // Set key states based on joystick position (reverted to original controls)
+      this.keyState.strafeLeft = rightX < -0.3;
+      this.keyState.strafeRight = rightX > 0.3;
+      this.keyState.thrustForward = rightY < -0.3;
+      this.keyState.thrustBackward = rightY > 0.3;
     }
+    
+    // Boost button sets the boost key state
+    // (This is now handled in the touch event handlers)
   }
 } 
