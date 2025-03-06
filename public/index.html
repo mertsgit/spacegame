@@ -2,8 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Space Multiplayer Game</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>Multiplayer Space Game</title>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -16,18 +18,34 @@
       --text-glow: 0 0 5px var(--primary-color);
     }
     
-    body { 
-      margin: 0; 
-      overflow: hidden; 
-      font-family: 'Exo 2', sans-serif;
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
       background-color: #000;
+      font-family: 'Orbitron', sans-serif;
       color: #fff;
+      width: 100vw;
+      height: 100vh;
+      touch-action: none;
     }
     
     canvas { 
       display: block; 
-      width: 100%; 
-      height: 100%;
+      width: 100% !important; 
+      height: 100% !important;
+    }
+    
+    /* Hide controls on mobile */
+    @media (max-width: 768px), (pointer: coarse) {
+      #control-display {
+        display: none !important;
+      }
+      
+      /* Hide the controls panel on mobile devices */
+      #controls {
+        display: none !important;
+      }
     }
     
     /* Login Screen */
@@ -207,6 +225,135 @@
       animation: pulse 2s infinite;
     }
     
+    /* Mobile controls */
+    #mobile-controls {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 10;
+    }
+    
+    .joystick {
+      position: absolute;
+      width: 120px;
+      height: 120px;
+      pointer-events: auto;
+      display: none; /* Hidden by default, shown on mobile */
+    }
+    
+    #left-joystick {
+      left: 30px;
+      bottom: 30px;
+    }
+    
+    #right-joystick {
+      right: 30px;
+      bottom: 30px;
+    }
+    
+    .joystick-base {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background-color: rgba(255, 255, 255, 0.1);
+      border: 2px solid rgba(0, 255, 255, 0.5);
+    }
+    
+    .joystick-knob {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background-color: rgba(0, 255, 255, 0.5);
+      border: 2px solid rgba(0, 255, 255, 0.8);
+    }
+    
+    #boost-button {
+      position: absolute;
+      right: 30px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background-color: rgba(255, 0, 229, 0.2);
+      border: 2px solid rgba(255, 0, 229, 0.5);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 14px;
+      pointer-events: auto;
+      display: none; /* Hidden by default, shown on mobile */
+    }
+    
+    /* Thrust button (W key) */
+    #thrust-button {
+      position: absolute;
+      left: 30px;
+      bottom: 30px;
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      background-color: rgba(0, 229, 255, 0.2);
+      border: 2px solid rgba(0, 229, 255, 0.5);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 16px;
+      font-weight: bold;
+      pointer-events: auto;
+      display: none; /* Hidden by default, shown on mobile */
+      box-shadow: 0 0 15px rgba(0, 229, 255, 0.3);
+      user-select: none;
+    }
+    
+    /* Media queries for mobile */
+    @media (max-width: 768px) {
+      #keyboard-controls {
+        display: none; /* Hide keyboard controls on mobile */
+      }
+      
+      #game-info {
+        font-size: 12px;
+        padding: 5px;
+      }
+      
+      #player-count {
+        font-size: 14px;
+        top: 10px;
+        right: 10px;
+      }
+      
+      /* Show mobile controls */
+      .joystick {
+        display: block;
+      }
+      
+      #boost-button {
+        display: flex;
+      }
+      
+      #thrust-button {
+        display: flex;
+      }
+    }
+    
+    /* Mobile class added to body when on mobile device */
+    body.mobile #game-canvas {
+      touch-action: none; /* Disable browser gestures */
+    }
+    
     @keyframes pulse {
       0% { opacity: 0.6; }
       50% { opacity: 1; }
@@ -233,7 +380,6 @@
   </div>
   
   <!-- Game UI -->
-  <div id="player-count" class="ui-panel">PILOTS ONLINE: 0</div>
   <div id="controls" class="ui-panel">
     <strong>NAVIGATION</strong>
     <div><span class="key">W</span> Forward Thrust</div>
@@ -248,18 +394,62 @@
     <strong>SYSTEMS</strong>
     <div><span class="key">SHIFT</span> Afterburner</div>
     <div><span class="key">R</span> Emergency Reset</div>
+    <div><span class="key">T</span> Toggle Trail</div>
   </div>
   
-  <!-- Scripts -->
-  <!-- Load Three.js from CDN with specific version for stability -->
-  <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/examples/js/controls/OrbitControls.js"></script>
+  <!-- Player count display -->
+  <div id="player-count" class="ui-panel">PILOTS ONLINE: 0</div>
   
-  <!-- Game scripts -->
+  <!-- Mobile controls -->
+  <div id="mobile-controls">
+    <!-- Forward thrust button (replaces left joystick) -->
+    <div id="thrust-button">THRUST</div>
+    
+    <div id="right-joystick" class="joystick">
+      <div class="joystick-base"></div>
+      <div class="joystick-knob"></div>
+    </div>
+    
+    <div id="boost-button">BOOST</div>
+  </div>
+  
+  <!-- Game canvas -->
+  <canvas id="game-canvas" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;"></canvas>
+  
+  <!-- Scripts -->
+  <script>
+    // Check if scripts load properly
+    window.addEventListener('error', function(e) {
+      if (e.target.tagName === 'SCRIPT') {
+        console.error('Failed to load script:', e.target.src);
+        document.body.innerHTML += '<div style="position:fixed; top:0; left:0; right:0; background:red; color:white; padding:10px; z-index:9999;">Failed to load: ' + e.target.src + '</div>';
+      }
+    }, true);
+  </script>
+  <script src="js/three.min.js"></script>
+  <script>
+    // Check if THREE.js loaded
+    if (typeof THREE === 'undefined') {
+      console.error('THREE.js failed to load from local path, trying CDN...');
+      document.write('<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"><\/script>');
+    } else {
+      console.log('THREE.js loaded successfully');
+    }
+  </script>
+  <script src="js/OrbitControls.js"></script>
+  <script>
+    // Check if OrbitControls loaded
+    if (typeof THREE === 'undefined' || typeof THREE.OrbitControls === 'undefined') {
+      console.error('OrbitControls failed to load, trying CDN...');
+      document.write('<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/examples/js/controls/OrbitControls.js"><\/script>');
+    } else {
+      console.log('OrbitControls loaded successfully');
+    }
+  </script>
   <script src="js/utils.js"></script>
-  <script src="js/websocket.js"></script>
   <script src="js/spaceship.js"></script>
   <script src="js/game.js"></script>
+  <script src="js/websocket.js"></script>
   <script src="js/login.js"></script>
   <script src="js/main.js"></script>
 </body>

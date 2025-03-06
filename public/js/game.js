@@ -33,7 +33,7 @@ class GameManager {
       rotationSpeed: 0.03,    // Rotation speed (radians per frame)
       drag: 0.98,             // Drag coefficient (1.0 = no drag)
       timeStep: 1.0,          // Physics time step multiplier
-      boostMultiplier: 2.0,   // Boost multiplier for acceleration
+      boostMultiplier: 4.0,   // Boost multiplier for acceleration
       gravity: 0.5            // Gravity strength
     };
     
@@ -49,36 +49,50 @@ class GameManager {
       rollRight: false,
       pitchUp: false,
       pitchDown: false,
+      yawLeft: false,
+      yawRight: false,
       boost: false,
-      reset: false,
-      trailActive: false // New trail key state
+      trailActive: false
     };
     
-    // Camera settings
-    this.cameraSettings = {
-      distance: 15,           // Distance behind the ship
-      height: 5,              // Height above the ship
-      lookAhead: 10,          // Look-ahead distance
-      smoothing: 0.1          // Camera movement smoothing factor
+    // Mobile detection and touch controls
+    this.isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                   ('ontouchstart' in window);
+    this.touchState = {
+      leftJoystick: {
+        active: false,
+        id: null,
+        startX: 0,
+        startY: 0,
+        currentX: 0,
+        currentY: 0,
+        deltaX: 0,
+        deltaY: 0
+      },
+      rightJoystick: {
+        active: false,
+        id: null,
+        startX: 0,
+        startY: 0,
+        currentX: 0,
+        currentY: 0,
+        deltaX: 0,
+        deltaY: 0
+      },
+      boostButton: {
+        active: false,
+        id: null
+      },
+      thrustButton: {
+        active: false,
+        id: null
+      }
     };
     
-    // Last camera position for smooth transitions
-    this.lastCameraPosition = null;
-    
-    // Game state
-    this.gameState = {
-      running: false,
-      paused: false,
-      crashed: false
-    };
-    
-    // Debug mode
-    this.debug = false;
-    
-    log('GameManager initialized');
+    log(`Mobile device detected: ${this.isMobile}`);
   }
   
-  // Initialize game with local player ID
+  // Initialize the game for a specific player
   init(localPlayerId) {
     if (this.initialized) {
       log('Game already initialized');
@@ -86,64 +100,118 @@ class GameManager {
     }
     
     log(`Initializing game for player: ${localPlayerId}`);
+    this.localPlayerId = localPlayerId;
+    
+    // Mobile-specific setup
+    if (this.isMobile) {
+      log('Setting up mobile-specific configurations');
+      
+      // Hide controls panel on mobile
+      const controlsPanel = document.getElementById('controls');
+      if (controlsPanel) {
+        controlsPanel.style.display = 'none';
+      }
+      
+      // Add mobile class to body if not already added
+      if (!document.body.classList.contains('mobile')) {
+        document.body.classList.add('mobile');
+        log('Added mobile class to body');
+      }
+      
+      // Ensure canvas is properly sized and positioned
+      const canvas = document.getElementById('game-canvas');
+      if (canvas) {
+        canvas.style.width = '100vw';
+        canvas.style.height = '100vh';
+        canvas.style.position = 'fixed';
+        canvas.style.top = '0';
+        canvas.style.left = '0';
+        canvas.style.display = 'block';
+        log('Canvas size and position set for mobile');
+      }
+    }
     
     try {
-      this.localPlayerId = localPlayerId;
+      // Get player color from login manager or generate a random one
+      let playerColor = '#00AAFF';
+      if (window.loginManager && window.loginManager.playerColor) {
+        playerColor = window.loginManager.playerColor;
+      } else {
+        playerColor = this.getRandomPlayerColor();
+      }
       
-      // Initialize scene
+      // Create local player data
+      const localPlayerData = {
+        id: this.localPlayerId,
+        username: window.loginManager && window.loginManager.username ? window.loginManager.username : 'Player',
+        position: { x: 0, y: 100, z: 0 }, // Start in space
+        rotation: { x: -0.2, y: 0, z: 0 }, // Tilt slightly down to see Earth
+        color: playerColor
+      };
+      
+      // Initialize scene, camera, renderer
       this.initScene();
+      
+      // Add local player
+      this.addPlayer(localPlayerData);
       
       // Initialize event listeners
       this.initEventListeners();
       
-      // Initialize camera tracking
-      this.lastCameraPosition = null;
+      // Create control display (now a no-op)
+      this.createControlDisplay();
       
-      // Ensure the local player's ship exists before starting animation
-      if (this.localPlayerId && !this.playerShips[this.localPlayerId] && window.spaceshipManager) {
-        log('Creating local player ship during initialization');
+      // Set up touch controls for mobile
+      if (this.isMobile) {
+        log('Setting up touch controls for mobile');
+        this.setupTouchControls();
         
-        // Get the color from the login manager if available
-        let playerColor = '#00FFFF'; // Default cyan color
-        if (window.loginManager && window.loginManager.colorInput) {
-          playerColor = window.loginManager.colorInput.value;
-          log(`Using color from login form: ${playerColor}`);
-        } else {
-          log(`No color input found, using default: ${playerColor}`);
+        // Make sure mobile controls are visible
+        const mobileControls = document.getElementById('mobile-controls');
+        if (mobileControls) {
+          mobileControls.style.display = 'block';
+          log('Mobile controls display set to block');
         }
         
-        const localPlayerData = {
-          id: this.localPlayerId,
-          username: window.loginManager && window.loginManager.username ? window.loginManager.username : 'Player',
-          position: { x: 0, y: 50, z: 0 }, // Start above origin
-          rotation: { x: 0, y: 0, z: 0 },
-          color: playerColor
-        };
+        // Show specific mobile control elements
+        const thrustButton = document.getElementById('thrust-button');
+        const rightJoystick = document.getElementById('right-joystick');
+        const boostButton = document.getElementById('boost-button');
         
-        this.addPlayer(localPlayerData);
-      }
-      
-      // Initialize player count display
-      this.playerCountElement = document.getElementById('player-count');
-      if (this.playerCountElement) {
-        this.updatePlayerCount();
-      } else {
-        log('Player count element not found');
+        if (thrustButton) thrustButton.style.display = 'flex';
+        if (rightJoystick) rightJoystick.style.display = 'block';
+        if (boostButton) boostButton.style.display = 'flex';
+        
+        log('Mobile control elements displayed');
       }
       
       // Start animation loop
-      this.gameState.running = true;
       this.animate();
       
+      // Mark as initialized
       this.initialized = true;
-      log('Game initialization complete');
+      log('Game initialized successfully');
+      
+      // Force a render to ensure the scene appears
+      if (this.renderer && this.scene && this.camera) {
+        this.renderer.render(this.scene, this.camera);
+        log('Forced initial render');
+        
+        // Set initial camera to look at Earth
+        if (this.playerShips[this.localPlayerId]) {
+          const ship = this.playerShips[this.localPlayerId];
+          this.camera.position.copy(ship.position);
+          this.camera.lookAt(0, -20000, -30000); // Look at Earth
+          this.updateCameraForLocalPlayer(true);
+          
+          // Force another render after camera update
+          this.renderer.render(this.scene, this.camera);
+          log('Forced render after camera positioning');
+        }
+      }
     } catch (error) {
       console.error('Error initializing game:', error);
-      // Try to recover by at least starting the animation loop
-      if (!this.gameState.running) {
-        this.gameState.running = true;
-        this.animate();
-      }
+      this.initialized = false;
     }
   }
   
@@ -166,10 +234,26 @@ class GameManager {
       this.camera.position.set(0, 5, 10);
       
       // Create renderer
-      this.renderer = new THREE.WebGLRenderer({ antialias: true });
+      const canvas = document.getElementById('game-canvas');
+      if (!canvas) {
+        console.error('Canvas element not found!');
+        return;
+      }
+      
+      log('Creating WebGL renderer with canvas:', canvas);
+      this.renderer = new THREE.WebGLRenderer({ 
+        antialias: true,
+        canvas: canvas // Use existing canvas
+      });
       this.renderer.setSize(window.innerWidth, window.innerHeight);
       this.renderer.setPixelRatio(window.devicePixelRatio);
-      document.body.appendChild(this.renderer.domElement);
+      
+      // Handle window resize
+      window.addEventListener('resize', () => {
+        this.camera.aspect = window.innerWidth / window.innerHeight;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+      });
       
       // Create controls
       if (areOrbitControlsLoaded()) {
@@ -212,6 +296,10 @@ class GameManager {
         meteors: [],
         nebulae: []
       };
+      
+      // Force initial render
+      this.renderer.render(this.scene, this.camera);
+      log('Initial scene render complete');
       
       // Add spaceport
       if (window.spaceshipManager) {
@@ -345,13 +433,6 @@ class GameManager {
       // Create speed lines for movement feedback
       this.createSpeedLines();
       
-      // Handle window resize
-      window.addEventListener('resize', () => {
-        this.camera.aspect = window.innerWidth / window.innerHeight;
-        this.camera.updateProjectionMatrix();
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
-      });
-      
       log('Scene initialization complete');
     } catch (error) {
       console.error('Error initializing scene:', error);
@@ -379,76 +460,27 @@ class GameManager {
     // Create control information display in top left corner
     this.createControlDisplay();
     
-    // Add debugging status display
-    const debugDiv = document.createElement('div');
-    debugDiv.style.position = 'fixed';
-    debugDiv.style.bottom = '10px';
-    debugDiv.style.left = '10px';
-    debugDiv.style.zIndex = '1000';
+    // Debug status display has been removed
     
-    const debugStatus = document.createElement('div');
-    debugStatus.id = 'debug-status';
-    debugStatus.style.color = 'white';
-    debugStatus.style.padding = '10px';
-    debugStatus.style.backgroundColor = 'rgba(0,0,0,0.5)';
-    debugStatus.style.margin = '10px 0';
-    
-    debugDiv.appendChild(debugStatus);
-    document.body.appendChild(debugDiv);
-    
-    // Update debug status periodically
-    setInterval(() => {
-      if (this.localPlayerId && this.playerShips[this.localPlayerId] && this.shipPhysics[this.localPlayerId]) {
-        const physics = this.shipPhysics[this.localPlayerId];
-        const speed = physics.velocity.length() * this.physics.speedToKm;
-        document.getElementById('debug-status').innerHTML = `Speed: ${speed.toFixed(1)} km/h`;
-      }
-    }, 100);
   }
   
   // Create the control display in the top left corner
   createControlDisplay() {
-    // Create container for control display
-    const controlDisplay = document.createElement('div');
-    controlDisplay.id = 'control-display';
-    controlDisplay.style.position = 'fixed';
-    controlDisplay.style.top = '10px';
-    controlDisplay.style.left = '10px';
-    controlDisplay.style.zIndex = '1000';
-    controlDisplay.style.color = 'white';
-    controlDisplay.style.padding = '15px';
-    controlDisplay.style.backgroundColor = 'rgba(0,0,0,0.7)';
-    controlDisplay.style.borderRadius = '5px';
-    controlDisplay.style.fontFamily = 'monospace';
-    controlDisplay.style.fontSize = '14px';
-    controlDisplay.style.fontWeight = 'bold';
-    controlDisplay.style.lineHeight = '1.5';
-    controlDisplay.style.boxShadow = '0 0 10px rgba(0,0,0,0.5)';
-    
-    // Create the initial content
-    this.updateControlDisplayContent(controlDisplay);
-    
-    // Add to document
-    document.body.appendChild(controlDisplay);
+    // Skip creating the control display
+    console.log("Control display creation skipped");
+    return;
   }
   
   // Update the control display content
   updateControlDisplay() {
-    const controlDisplay = document.getElementById('control-display');
-    if (controlDisplay) {
-      this.updateControlDisplayContent(controlDisplay);
-    }
+    // Skip updating since we're not creating the control display
+    return;
   }
   
   // Set the content of the control display
   updateControlDisplayContent(element) {
-    element.innerHTML = `
-      <div>W KEY: ${this.keyState.thrustForward ? 'PRESSED' : 'NOT PRESSED'}</div>
-      <div>A KEY: ${this.keyState.strafeLeft ? 'PRESSED' : 'NOT PRESSED'}</div>
-      <div>S KEY: ${this.keyState.thrustBackward ? 'PRESSED' : 'NOT PRESSED'}</div>
-      <div>D KEY: ${this.keyState.strafeRight ? 'PRESSED' : 'NOT PRESSED'}</div>
-      <div>BOOST: ${this.keyState.boost ? 'ACTIVE' : 'INACTIVE'}</div>
-    `;
+    // No-op since we're not using the control display
+    return;
   }
   
   // Update key state
@@ -589,62 +621,69 @@ class GameManager {
   
   // Animation loop
   animate() {
+    // Request next frame
     requestAnimationFrame(() => this.animate());
     
-    // Debug the animation frame
-    const frameStart = Date.now();
-    
-    // Update local player ship based on key state
-    if (this.localPlayerId && this.playerShips[this.localPlayerId]) {
-      this.updateLocalPlayer();
-    } else if (this.localPlayerId) {
-      // Ship doesn't exist yet, try to create it if we have all the necessary components
-      if (window.spaceshipManager && !this.playerShips[this.localPlayerId]) {
-        log(`Attempting to create missing ship for player ID ${this.localPlayerId} during animation`);
-        
-        const localPlayerData = {
-          id: this.localPlayerId,
-          username: window.loginManager && window.loginManager.username ? window.loginManager.username : 'Player',
-          position: { x: 0, y: 50, z: 0 },
-          rotation: { x: 0, y: 0, z: 0 },
-          color: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')
-        };
-        
-        this.addPlayer(localPlayerData);
-      } else {
-        // Only log the warning every 60 frames to avoid console spam
-        if (frameStart % 60 === 0) {
-          console.warn(`Cannot update player: Ship does not exist for player ID ${this.localPlayerId}`);
-        }
-      }
+    // Log for mobile debugging (only log occasionally to avoid flooding console)
+    if (this.isMobile && Math.random() < 0.01) {
+      log('Mobile animation frame active');
     }
     
-    // Update camera position to follow local player
-    this.updateCameraForLocalPlayer();
-    
-    // Update username tags to face camera
-    this.updateUsernameTags();
-    
-    // Update speed lines
-    this.updateSpeedLines();
-    
-    // Animate celestial objects
+    // Update celestial objects
     this.animateCelestialObjects();
     
-    // Update controls if available (for damping effect)
+    // Update local player if available
+    if (this.localPlayerId && this.playerShips[this.localPlayerId]) {
+      this.updateLocalPlayer();
+    }
+    
+    // Update camera position to follow player
+    this.updateCameraForLocalPlayer();
+    
+    // Update username tags to follow players
+    this.updateUsernameTags();
+    
+    // Update speed lines effect
+    this.updateSpeedLines();
+    
+    // Update orbit controls if available
     if (this.controls) {
       this.controls.update();
     }
     
     // Render scene
     if (this.renderer && this.scene && this.camera) {
-      this.renderer.render(this.scene, this.camera);
-    }
-    
-    // Frame timing debug
-    const frameTime = Date.now() - frameStart;
-    if (frameTime > 16) { // Warn if frame takes longer than 16ms (60fps)
-      console.warn(`Slow frame: ${frameTime}ms`);
+      try {
+        this.renderer.render(this.scene, this.camera);
+      } catch (error) {
+        console.error('Error during render:', error);
+        
+        // Try to recover renderer on error (especially for mobile)
+        if (this.isMobile) {
+          log('Attempting to recover renderer after error');
+          const canvas = document.getElementById('game-canvas');
+          if (canvas) {
+            try {
+              this.renderer = new THREE.WebGLRenderer({ 
+                antialias: true,
+                canvas: canvas,
+                powerPreference: "high-performance",
+                alpha: true
+              });
+              this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+              this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+              log('Renderer recovery attempted');
+            } catch (recoveryError) {
+              console.error('Failed to recover renderer:', recoveryError);
+            }
+          }
+        }
+      }
+    } else {
+      console.error('Render failed: missing renderer, scene, or camera');
+      
+      // Log component status for debugging
+      log(`Renderer: ${this.renderer ? 'OK' : 'MISSING'}, Scene: ${this.scene ? 'OK' : 'MISSING'}, Camera: ${this.camera ? 'OK' : 'MISSING'}`);
     }
   }
   
@@ -767,6 +806,11 @@ class GameManager {
     
     // Reset acceleration for this frame
     physics.acceleration.set(0, 0, 0);
+    
+    // Update key state from touch controls if on mobile
+    if (this.isMobile) {
+      this.updateKeyStateFromTouchControls();
+    }
     
     // Thruster boost multiplier
     let boostMultiplier = this.keyState.boost ? this.physics.boostMultiplier : 1.0;
@@ -1229,35 +1273,55 @@ class GameManager {
     title.style.textShadow = '0 0 10px var(--accent-color, #ff00e5)';
     title.style.animation = 'pulse 2s infinite';
     
-    // Create restart button
+    // Create restart button with improved mobile styling
     const button = document.createElement('button');
     button.textContent = 'RESTART';
-    button.style.padding = '12px 30px';
-    button.style.fontSize = '1.2rem';
-    button.style.backgroundColor = 'transparent';
+    button.style.padding = '15px 40px'; // Larger padding for better touch target
+    button.style.fontSize = '1.5rem'; // Larger font for better visibility
+    button.style.backgroundColor = 'rgba(0, 229, 255, 0.2)'; // Light background for better visibility
     button.style.border = '2px solid var(--primary-color, #00e5ff)';
     button.style.color = 'var(--primary-color, #00e5ff)';
     button.style.cursor = 'pointer';
     button.style.fontFamily = "'Orbitron', sans-serif";
-    button.style.borderRadius = '6px';
+    button.style.borderRadius = '8px'; // Larger border radius
     button.style.transition = 'all 0.3s';
     button.style.textShadow = '0 0 5px var(--primary-color, #00e5ff)';
-    button.style.boxShadow = '0 0 10px rgba(0, 229, 255, 0.3)';
+    button.style.boxShadow = '0 0 15px rgba(0, 229, 255, 0.5)'; // More visible glow
+    button.style.margin = '20px'; // Add margin for better touch area
+    button.style.WebkitTapHighlightColor = 'rgba(0,0,0,0)'; // Remove tap highlight on mobile
+    button.style.userSelect = 'none'; // Prevent text selection
+    button.style.touchAction = 'manipulation'; // Optimize for touch
     
-    // Add hover effect
+    // Add hover effect for desktop
     button.addEventListener('mouseover', () => {
-      button.style.backgroundColor = 'rgba(0, 229, 255, 0.2)';
-      button.style.boxShadow = '0 0 20px rgba(0, 229, 255, 0.5)';
+      button.style.backgroundColor = 'rgba(0, 229, 255, 0.3)';
+      button.style.boxShadow = '0 0 20px rgba(0, 229, 255, 0.7)';
       button.style.transform = 'translateY(-2px)';
     });
     
     button.addEventListener('mouseout', () => {
-      button.style.backgroundColor = 'transparent';
-      button.style.boxShadow = '0 0 10px rgba(0, 229, 255, 0.3)';
+      button.style.backgroundColor = 'rgba(0, 229, 255, 0.2)';
+      button.style.boxShadow = '0 0 15px rgba(0, 229, 255, 0.5)';
       button.style.transform = 'translateY(0)';
     });
     
-    // Add click event
+    // Add touch feedback for mobile
+    button.addEventListener('touchstart', (e) => {
+      e.preventDefault(); // Prevent default behavior
+      button.style.backgroundColor = 'rgba(0, 229, 255, 0.4)';
+      button.style.boxShadow = '0 0 25px rgba(0, 229, 255, 0.8)';
+      button.style.transform = 'scale(0.98)';
+    }, { passive: false });
+    
+    button.addEventListener('touchend', (e) => {
+      e.preventDefault(); // Prevent default behavior
+      button.style.backgroundColor = 'rgba(0, 229, 255, 0.2)';
+      button.style.boxShadow = '0 0 15px rgba(0, 229, 255, 0.5)';
+      button.style.transform = 'scale(1)';
+      this.restartGame();
+    }, { passive: false });
+    
+    // Add click event for desktop
     button.addEventListener('click', () => {
       this.restartGame();
     });
@@ -1279,6 +1343,16 @@ class GameManager {
       }
     `;
     document.head.appendChild(style);
+    
+    // Ensure the crash screen is properly sized on mobile
+    if (this.isMobile) {
+      // Force proper sizing on mobile
+      window.setTimeout(() => {
+        this.crashScreen.style.width = '100vw';
+        this.crashScreen.style.height = '100vh';
+        this.crashScreen.style.position = 'fixed';
+      }, 100);
+    }
   }
   
   // Restart the game after crash
@@ -1734,22 +1808,12 @@ class GameManager {
   // Add updatePlayerCount method to GameManager class
   updatePlayerCount() {
     try {
-      // Update player count display if element exists
+      const count = Object.keys(this.players).length;
       const playerCountElement = document.getElementById('player-count');
       if (playerCountElement) {
-        const count = Object.keys(this.players).length;
-        playerCountElement.textContent = `PILOTS ONLINE: ${count}`;
-        log(`Updated player count: ${count}`);
-      } else {
-        // If we can't find the element by ID, try using the class property
-        if (this.playerCountElement) {
-          const count = Object.keys(this.players).length;
-          this.playerCountElement.textContent = `PILOTS ONLINE: ${count}`;
-          log(`Updated player count using class property: ${count}`);
-        } else {
-          log('Player count element not found');
-        }
+        playerCountElement.innerHTML = `PILOTS ONLINE: ${count}`;
       }
+      log(`Player count updated: ${count}`);
     } catch (error) {
       console.error('Error updating player count:', error);
     }
@@ -2196,5 +2260,210 @@ class GameManager {
     }
     
     return null;
+  }
+  
+  // Setup touch controls for mobile devices
+  setupTouchControls() {
+    // Get control elements
+    const thrustButton = document.getElementById('thrust-button');
+    const rightJoystick = document.getElementById('right-joystick');
+    const boostButton = document.getElementById('boost-button');
+    
+    if (!thrustButton || !rightJoystick) {
+      console.error('Touch control elements not found in the DOM');
+      return;
+    }
+    
+    // Get joystick knob
+    const rightKnob = rightJoystick.querySelector('.joystick-knob');
+    
+    if (!rightKnob) {
+      console.error('Joystick knob element not found in the DOM');
+      return;
+    }
+    
+    // Helper function to update knob position
+    const updateKnobPosition = (knob, deltaX, deltaY) => {
+      const maxRadius = 35; // Maximum distance the knob can move from center
+      const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+      
+      // Clamp the distance to the maximum radius
+      if (distance > maxRadius) {
+        deltaX = (deltaX / distance) * maxRadius;
+        deltaY = (deltaY / distance) * maxRadius;
+      }
+      
+      // Update knob position
+      knob.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
+    };
+    
+    // Reset knob position
+    const resetKnobPosition = (knob) => {
+      knob.style.transform = 'translate(-50%, -50%)';
+    };
+    
+    // Touch start event handler
+    document.addEventListener('touchstart', (e) => {
+      e.preventDefault(); // Prevent default browser behavior
+      
+      // Process each touch
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const touch = e.changedTouches[i];
+        const touchX = touch.clientX;
+        const touchY = touch.clientY;
+        
+        // Check if touch is on thrust button
+        if (this.isTouchOnElement(touch, thrustButton) && !this.touchState.thrustButton.active) {
+          this.touchState.thrustButton.active = true;
+          this.touchState.thrustButton.id = touch.identifier;
+          this.keyState.thrustForward = true;
+          thrustButton.style.backgroundColor = 'rgba(0, 229, 255, 0.5)';
+          thrustButton.style.boxShadow = '0 0 20px rgba(0, 229, 255, 0.7)';
+          thrustButton.style.transform = 'scale(0.95)';
+        }
+        // Check if touch is on right joystick
+        else if (this.isTouchOnElement(touch, rightJoystick) && !this.touchState.rightJoystick.active) {
+          this.touchState.rightJoystick.active = true;
+          this.touchState.rightJoystick.id = touch.identifier;
+          this.touchState.rightJoystick.startX = touchX;
+          this.touchState.rightJoystick.startY = touchY;
+          this.touchState.rightJoystick.currentX = touchX;
+          this.touchState.rightJoystick.currentY = touchY;
+          this.touchState.rightJoystick.deltaX = 0;
+          this.touchState.rightJoystick.deltaY = 0;
+        }
+        // Check if touch is on boost button
+        else if (boostButton && this.isTouchOnElement(touch, boostButton)) {
+          this.touchState.boostButton.active = true;
+          this.touchState.boostButton.id = touch.identifier;
+          this.keyState.boost = true;
+          boostButton.style.backgroundColor = 'rgba(255, 0, 229, 0.5)';
+        }
+      }
+    }, { passive: false });
+    
+    // Touch move event handler
+    document.addEventListener('touchmove', (e) => {
+      e.preventDefault(); // Prevent default browser behavior
+      
+      // Process each touch
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const touch = e.changedTouches[i];
+        
+        // Update right joystick
+        if (this.touchState.rightJoystick.active && touch.identifier === this.touchState.rightJoystick.id) {
+          this.touchState.rightJoystick.currentX = touch.clientX;
+          this.touchState.rightJoystick.currentY = touch.clientY;
+          this.touchState.rightJoystick.deltaX = touch.clientX - this.touchState.rightJoystick.startX;
+          this.touchState.rightJoystick.deltaY = touch.clientY - this.touchState.rightJoystick.startY;
+          
+          // Update knob position
+          updateKnobPosition(rightKnob, this.touchState.rightJoystick.deltaX, this.touchState.rightJoystick.deltaY);
+        }
+      }
+    }, { passive: false });
+    
+    // Touch end event handler
+    document.addEventListener('touchend', (e) => {
+      e.preventDefault(); // Prevent default browser behavior
+      
+      // Process each touch
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const touch = e.changedTouches[i];
+        
+        // Reset thrust button
+        if (this.touchState.thrustButton.active && touch.identifier === this.touchState.thrustButton.id) {
+          this.touchState.thrustButton.active = false;
+          this.keyState.thrustForward = false;
+          thrustButton.style.backgroundColor = 'rgba(0, 229, 255, 0.2)';
+          thrustButton.style.boxShadow = '0 0 15px rgba(0, 229, 255, 0.3)';
+          thrustButton.style.transform = 'scale(1)';
+        }
+        // Reset right joystick
+        else if (this.touchState.rightJoystick.active && touch.identifier === this.touchState.rightJoystick.id) {
+          this.touchState.rightJoystick.active = false;
+          this.touchState.rightJoystick.deltaX = 0;
+          this.touchState.rightJoystick.deltaY = 0;
+          resetKnobPosition(rightKnob);
+        }
+        // Reset boost button
+        else if (this.touchState.boostButton.active && touch.identifier === this.touchState.boostButton.id) {
+          this.touchState.boostButton.active = false;
+          this.keyState.boost = false;
+          if (boostButton) {
+            boostButton.style.backgroundColor = 'rgba(255, 0, 229, 0.2)';
+          }
+        }
+      }
+    }, { passive: false });
+    
+    // Touch cancel event handler
+    document.addEventListener('touchcancel', (e) => {
+      e.preventDefault(); // Prevent default browser behavior
+      
+      // Reset all touch states
+      this.touchState.thrustButton.active = false;
+      this.touchState.rightJoystick.active = false;
+      this.touchState.boostButton.active = false;
+      
+      // Reset key states
+      this.keyState.thrustForward = false;
+      this.keyState.boost = false;
+      
+      // Reset visual elements
+      thrustButton.style.backgroundColor = 'rgba(0, 229, 255, 0.2)';
+      thrustButton.style.boxShadow = '0 0 15px rgba(0, 229, 255, 0.3)';
+      thrustButton.style.transform = 'scale(1)';
+      
+      // Reset knob position
+      resetKnobPosition(rightKnob);
+      
+      // Reset boost button
+      if (boostButton) {
+        boostButton.style.backgroundColor = 'rgba(255, 0, 229, 0.2)';
+      }
+    }, { passive: false });
+  }
+  
+  // Check if a touch is on a specific element
+  isTouchOnElement(touch, element) {
+    if (!element) return false;
+    
+    const rect = element.getBoundingClientRect();
+    return (
+      touch.clientX >= rect.left &&
+      touch.clientX <= rect.right &&
+      touch.clientY >= rect.top &&
+      touch.clientY <= rect.bottom
+    );
+  }
+  
+  // Update key state from touch controls
+  updateKeyStateFromTouchControls() {
+    if (!this.isMobile) return;
+    
+    // Thrust button directly sets the thrustForward key state
+    // (This is now handled in the touch event handlers)
+    
+    // Right joystick controls pitch and yaw
+    const rightJoystick = this.touchState.rightJoystick;
+    if (rightJoystick.active) {
+      // Normalize joystick values to -1 to 1 range
+      const maxRadius = 35;
+      const rightX = Math.max(-1, Math.min(1, rightJoystick.deltaX / maxRadius));
+      const rightY = Math.max(-1, Math.min(1, rightJoystick.deltaY / maxRadius));
+      
+      // Set key states based on joystick position
+      this.keyState.pitchUp = rightY < -0.3;
+      this.keyState.pitchDown = rightY > 0.3;
+      this.keyState.yawLeft = rightX < -0.3;
+      this.keyState.yawRight = rightX > 0.3;
+    } else {
+      // Reset rotation key states when joystick is not active
+      this.keyState.pitchUp = false;
+      this.keyState.pitchDown = false;
+      this.keyState.yawLeft = false;
+      this.keyState.yawRight = false;
+    }
   }
 } 

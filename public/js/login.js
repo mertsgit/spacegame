@@ -95,13 +95,7 @@ class LoginManager {
     // Register login response callback
     window.wsManager.on('loginResponse', (data) => {
       if (data.success) {
-        this.loginSuccess(data.playerId, username);
-        
-        // Process the full player list if provided
-        if (data.players && window.gameManager) {
-          log('Received full player list on login, updating players');
-          window.gameManager.updatePlayers(data.players);
-        }
+        this.loginSuccess(data.playerId, username, data.players);
       } else {
         this.showLoginError('Login failed: ' + (data.message || 'Unknown error'));
       }
@@ -136,11 +130,13 @@ class LoginManager {
   }
   
   // Handle successful login
-  loginSuccess(playerId, username) {
+  loginSuccess(playerId, username, playerList) {
     log(`Login successful, player ID: ${playerId}`);
     
+    // Store player ID and username
     this.playerId = playerId;
     this.username = username;
+    this.playerColor = this.colorInput ? this.colorInput.value : '#00FFFF';
     
     // Hide login screen
     if (this.loginScreen) {
@@ -149,6 +145,66 @@ class LoginManager {
     
     // Initialize game
     this.initializeGame();
+    
+    // Process player list if provided
+    if (playerList && Array.isArray(playerList) && window.gameManager) {
+      log(`Processing player list with ${playerList.length} players`);
+      playerList.forEach(player => {
+        if (player.id !== playerId) { // Don't add local player twice
+          window.gameManager.addPlayer(player);
+        }
+      });
+    }
+    
+    // Force multiple renders after login, especially important for mobile
+    const isMobile = window.gameManager && window.gameManager.isMobile;
+    
+    // First render
+    setTimeout(() => {
+      if (window.gameManager && window.gameManager.renderer && window.gameManager.scene && window.gameManager.camera) {
+        log('Forcing first render after login');
+        window.gameManager.renderer.render(window.gameManager.scene, window.gameManager.camera);
+        
+        // On mobile, ensure controls are visible
+        if (isMobile) {
+          const mobileControls = document.getElementById('mobile-controls');
+          if (mobileControls) {
+            mobileControls.style.display = 'block';
+            log('Mobile controls display set to block');
+          }
+          
+          // Force canvas to be visible and sized correctly
+          const canvas = document.getElementById('game-canvas');
+          if (canvas) {
+            canvas.style.display = 'block';
+            canvas.style.width = '100vw';
+            canvas.style.height = '100vh';
+            canvas.style.position = 'fixed';
+            canvas.style.top = '0';
+            canvas.style.left = '0';
+            log('Canvas display and size enforced');
+          }
+        }
+      } else {
+        console.error('Cannot force render after login: missing game components');
+      }
+    }, 100);
+    
+    // Second render for mobile (after a longer delay)
+    if (isMobile) {
+      setTimeout(() => {
+        if (window.gameManager && window.gameManager.renderer) {
+          log('Forcing second render for mobile');
+          window.gameManager.renderer.render(window.gameManager.scene, window.gameManager.camera);
+          
+          // Setup touch controls again to be sure
+          if (window.gameManager.setupTouchControls) {
+            window.gameManager.setupTouchControls();
+            log('Touch controls setup reinforced');
+          }
+        }
+      }, 500);
+    }
   }
   
   // Show login error
@@ -161,29 +217,95 @@ class LoginManager {
     this.loginButton.disabled = false;
   }
   
-  // Initialize game after login
+  // Initialize the game after successful login
   initializeGame() {
+    log('Initializing game after login');
+    
+    if (!window.gameManager) {
+      console.error('Game manager not found, creating a new one');
+      window.gameManager = new GameManager();
+    }
+    
+    // Set player ID in game manager
     if (window.gameManager) {
-      if (window.gameManager.initialized) {
-        log('Game already initialized, updating player ID');
-        window.gameManager.setLocalPlayerId(this.playerId);
-      } else {
-        log('Initializing game after login');
-        window.gameManager.init(this.playerId);
-      }
+      log(`Setting local player ID in game manager: ${this.playerId}`);
       
-      // Force create player ship if using HTTP fallback mode
-      if (window.wsManager && window.wsManager.isHttpFallback) {
-        log('Using HTTP fallback mode, force creating player ship after login');
-        this.forceCreatePlayerShip();
+      // Initialize game with player ID
+      window.gameManager.init(this.playerId);
+      
+      // Check if initialization was successful
+      if (!window.gameManager.initialized) {
+        console.error('Game initialization failed');
         
-        // Schedule additional attempts to ensure the ship is created
-        setTimeout(() => this.forceCreatePlayerShip(), 1000);
-        setTimeout(() => this.forceCreatePlayerShip(), 3000);
+        // Try again with a delay and multiple attempts
+        let attempts = 0;
+        const maxAttempts = 3;
+        const tryInitialize = () => {
+          attempts++;
+          log(`Retrying game initialization (attempt ${attempts}/${maxAttempts})`);
+          window.gameManager.init(this.playerId);
+          
+          if (!window.gameManager.initialized && attempts < maxAttempts) {
+            setTimeout(tryInitialize, 500);
+          } else if (window.gameManager.initialized) {
+            log('Game initialized successfully on retry');
+            this.ensureGameRendering();
+          } else {
+            console.error(`Failed to initialize game after ${maxAttempts} attempts`);
+          }
+        };
+        
+        setTimeout(tryInitialize, 500);
+      } else {
+        log('Game initialized successfully');
+        this.ensureGameRendering();
       }
     } else {
-      console.error('Game Manager not initialized!');
+      console.error('Game manager not available after login');
     }
+  }
+  
+  // Ensure the game renders properly after initialization
+  ensureGameRendering() {
+    // Force multiple renders to ensure the scene appears
+    const forceRender = (count = 0) => {
+      if (window.gameManager && window.gameManager.renderer && window.gameManager.scene && window.gameManager.camera) {
+        log(`Forcing render after login (${count + 1}/3)`);
+        window.gameManager.renderer.render(window.gameManager.scene, window.gameManager.camera);
+        
+        // On mobile, make sure touch controls are properly set up
+        if (window.gameManager.isMobile) {
+          log('Setting up mobile touch controls');
+          window.gameManager.setupTouchControls();
+          
+          // Make sure mobile controls are visible
+          const mobileControls = document.getElementById('mobile-controls');
+          if (mobileControls) {
+            mobileControls.style.display = 'block';
+            log('Mobile controls display set to block');
+          }
+          
+          // Force the canvas to be visible and sized correctly
+          const canvas = document.getElementById('game-canvas');
+          if (canvas) {
+            canvas.style.display = 'block';
+            canvas.style.width = '100vw';
+            canvas.style.height = '100vh';
+            log('Canvas display and size enforced');
+          }
+        }
+        
+        // Continue forcing renders a few times
+        if (count < 2) {
+          setTimeout(() => forceRender(count + 1), 100);
+        }
+      } else {
+        console.error('Cannot force render after login: missing game components');
+      }
+    };
+    
+    // Start forcing renders
+    setTimeout(() => forceRender(), 100);
   }
   
   // Force create the player ship

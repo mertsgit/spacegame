@@ -2,8 +2,60 @@
 document.addEventListener('DOMContentLoaded', function() {
   log('Document loaded, initializing game components');
   
-  // Initialize components in the correct order with proper delays
-  initGameComponents();
+  // Check if mobile device with multiple detection methods
+  const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+                  ('ontouchstart' in window) ||
+                  (window.matchMedia && window.matchMedia('(max-width: 768px)').matches);
+  
+  // Add mobile class to body if on mobile device
+  if (isMobile) {
+    document.body.classList.add('mobile');
+    log('Mobile device detected: ' + navigator.userAgent);
+    
+    // Show mobile controls
+    const mobileControls = document.getElementById('mobile-controls');
+    if (mobileControls) {
+      mobileControls.style.display = 'block';
+      log('Mobile controls display set to block');
+    }
+    
+    // Hide controls panel on mobile
+    const controlsPanel = document.getElementById('controls');
+    if (controlsPanel) {
+      controlsPanel.style.display = 'none';
+      log('Controls panel hidden on mobile');
+    }
+    
+    // Ensure proper canvas sizing
+    const canvas = document.getElementById('game-canvas');
+    if (canvas) {
+      canvas.style.width = '100vw';
+      canvas.style.height = '100vh';
+      canvas.style.position = 'fixed';
+      canvas.style.top = '0';
+      canvas.style.left = '0';
+      canvas.style.display = 'block';
+      log('Canvas size set to 100vw x 100vh');
+    }
+    
+    // Prevent scrolling/zooming on mobile
+    document.addEventListener('touchmove', function(e) {
+      if (e.target.id !== 'game-canvas') {
+        e.preventDefault();
+      }
+    }, { passive: false });
+  }
+  
+  // Ensure THREE.js is loaded before proceeding
+  const waitForThree = setInterval(() => {
+    if (typeof THREE !== 'undefined') {
+      clearInterval(waitForThree);
+      log('THREE.js is available, initializing game components');
+      initGameComponents();
+    } else {
+      log('Waiting for THREE.js to load...');
+    }
+  }, 100);
 });
 
 // Initialize all game components in the correct order
@@ -17,24 +69,35 @@ function initGameComponents() {
   // Create GameManager
   window.gameManager = new GameManager();
   
-  // Initialize WebSocket manager
+  // Create WebSocketManager
   window.wsManager = new WebSocketManager();
   
-  // Create LoginManager last (after all dependencies)
+  // Create LoginManager
   window.loginManager = new LoginManager();
   
-  // Handle WebSocket callbacks
+  // Setup WebSocket callbacks
   setupWebSocketCallbacks();
-  
-  // Register player left event handler
-  window.wsManager.on('playerLeft', (data) => {
-    if (window.gameManager) {
-      window.gameManager.removePlayer(data.playerId);
-    }
-  });
   
   // Connect to WebSocket server
   window.wsManager.connect();
+  
+  // Force render after initialization
+  setTimeout(() => {
+    if (window.gameManager && window.gameManager.renderer && window.gameManager.scene && window.gameManager.camera) {
+      log('Forcing initial render after component initialization');
+      window.gameManager.renderer.render(window.gameManager.scene, window.gameManager.camera);
+      
+      // Additional render for mobile
+      if (window.gameManager.isMobile) {
+        setTimeout(() => {
+          if (window.gameManager.renderer) {
+            log('Forcing additional render for mobile');
+            window.gameManager.renderer.render(window.gameManager.scene, window.gameManager.camera);
+          }
+        }, 500);
+      }
+    }
+  }, 500);
 }
 
 // Setup WebSocket callbacks
